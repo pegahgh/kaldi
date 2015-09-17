@@ -98,6 +98,7 @@ realign_times=          # List of times on which we realign.  Each time is
                         # will be multiplied by the num-iters to get an iteration
                         # number.
 num_jobs_align=30       # Number of jobs for realignment
+min_deriv_time=-7      # The maximum t value that the deriv computed in updating the model
 # End configuration section.
 
 
@@ -560,7 +561,7 @@ while [ $x -lt $num_iters ]; do
                                                # the other indexes from.
         archive=$[($k%$num_archives)+1]; # work out the 1-based archive index.
         $cmd $train_queue_opt $dir/log/train.$x.$n.log \
-          nnet3-train$parallel_suffix --print-interval=10 --update-per-minibatch=$update_per_minibatch $parallel_train_opts "$raw" \
+          nnet3-train$parallel_suffix --optimization.min-deriv-time=$min_deriv_time --print-interval=10 --update-per-minibatch=$update_per_minibatch $parallel_train_opts "$raw" \
           "ark:nnet3-copy-egs $context_opts ark:$cur_egs_dir/egs.$archive.ark ark:- | nnet3-shuffle-egs --buffer-size=$shuffle_buffer_size --srand=$x ark:- ark:-| nnet3-merge-egs --minibatch-size=$this_num_chunk_per_minibatch --measure-output-frames=false ark:- ark:- |" \
           $dir/$[$x+1].$n.raw || touch $dir/.error &
       done
