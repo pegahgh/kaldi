@@ -35,10 +35,10 @@ namespace kaldi {
 /// column).
 
 /// The basic idea is for each column (in the normal configuration)
-/// we work out the values at the 0th, 25th, 50th and 100th percentiles
+/// we work out the values at the 0th, 25th, 75th and 100th percentiles
 /// and store them as 16-bit integers; we then encode each value in
 /// the column as a single byte, in 3 separate ranges with different
-/// linear encodings (0-25th, 25-50th, 50th-100th).
+/// linear encodings (0-25th, 25-75th, 75th-100th).
 /// If the matrix has 8 rows or fewer, we simply store all values as
 /// uint16.
 
