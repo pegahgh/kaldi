@@ -779,7 +779,7 @@ void ComputeExampleComputationRequestSimple(
     const Nnet &nnet,
     ComputationRequest *request,
     std::vector<Matrix<BaseFloat> > *inputs) {
-  KALDI_ASSERT(IsSimpleNnet(nnet));
+  KALDI_ASSERT(IsSimpleNnet(nnet) || IsSimpleNnet2(nnet));
 
   int32 left_context, right_context;
   ComputeSimpleNnetContext(nnet, &left_context, &right_context);

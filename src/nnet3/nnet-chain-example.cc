@@ -273,11 +273,11 @@ void NnetChainExample::Swap(NnetChainExample *other) {
   outputs.swap(other->outputs);
 }
 
-void NnetChainExample::Compress(int32 format) {
+void NnetChainExample::Compress() {
   std::vector<NnetIo>::iterator iter = inputs.begin(), end = inputs.end();
   // calling features.Compress() will do nothing if they are sparse or already
   // compressed.
-  for (; iter != end; ++iter) iter->features.Compress(format);
+  for (; iter != end; ++iter) iter->features.Compress();
 }
 
 NnetChainExample::NnetChainExample(const NnetChainExample &other):
