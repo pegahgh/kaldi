@@ -169,7 +169,8 @@ static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
       if (t >= pdf_post.size()) t = pdf_post.size() - 1;
       labels[i] = pdf_post[t];
     }
-    NnetSupervision *io_sup = new NnetIo("output2", num_pdfs, 0, labels);
+    int32 skip_frame = frame_subsampling_factor; 
+    NnetSupervision *io_sup = new NnetIo("output2", num_pdfs, 0, labels, skip_frame);
     nnet_chain_eg.outputs[1] = io_sup;
     if (compress)
       nnet_chain_eg.Compress();
