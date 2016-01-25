@@ -91,7 +91,7 @@ struct NnetIo : public NnetSupervision {
   NnetIo(const std::string &name,
          int32 dim,
          int32 t_begin,
-         const Posterior &labels, 
+         const Posterior &labels,
          int32 skip_frame = 1);
 
   virtual void Swap(NnetSupervision *other);
@@ -111,6 +111,9 @@ struct NnetIo : public NnetSupervision {
   // It's only used in testing code.
   bool operator == (const NnetIo &other) const;
 
+  // this comparison is not very efficient, especially for sparse supervision.
+  // It's only used in testing code.
+  bool operator == (const NnetIo &other) const;
 };
 
 

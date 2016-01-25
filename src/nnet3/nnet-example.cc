@@ -82,6 +82,12 @@ void NnetIo::Swap(NnetSupervision *other) {
   features.Swap(&(other_sup->features));
 }
 
+void NnetIo::Swap(NnetIo *other) {
+  name.swap(other->name);
+  indexes.swap(other->indexes);
+  features.Swap(&(other->features));
+}
+
 NnetIo::NnetIo(const std::string &name,
                int32 dim,
                int32 t_begin,
