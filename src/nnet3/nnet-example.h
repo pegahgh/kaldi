@@ -110,10 +110,6 @@ struct NnetIo : public NnetSupervision {
   // this comparison is not very efficient, especially for sparse supervision.
   // It's only used in testing code.
   bool operator == (const NnetIo &other) const;
-
-  // this comparison is not very efficient, especially for sparse supervision.
-  // It's only used in testing code.
-  bool operator == (const NnetIo &other) const;
 };
 
 
