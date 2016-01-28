@@ -108,14 +108,20 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
     if (nnet_config_.compute_deriv)
       nnet_output_deriv.Resize(nnet_output.NumRows(), nnet_output.NumCols(),
                                kUndefined);
-    if (use_xent)
+
+    CuMatrix<BaseFloat> xent_output;
+    if (use_xent) {
       xent_deriv.Resize(nnet_output.NumRows(), nnet_output.NumCols(),
                         kUndefined);
-      
+
+      // this block computes the cross-entropy objective.
+      xent_output = computer->GetOutput(
+          xent_name);
+    }
+
     BaseFloat tot_like, tot_l2_term, tot_weight;
-    
     ComputeChainObjfAndDeriv(chain_config_, den_graph_,
-                             sup.supervision, nnet_output,
+                             sup.supervision, nnet_output, xent_output,
                              &tot_like, &tot_l2_term, &tot_weight,
                              (nnet_config_.compute_deriv ? &nnet_output_deriv :
                               NULL), (use_xent ? &xent_deriv : NULL));
@@ -138,9 +144,6 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
 
     if (use_xent) {
       ChainObjectiveInfo &xent_totals = objf_info_[xent_name];
-      // this block computes the cross-entropy objective.
-      const CuMatrixBase<BaseFloat> &xent_output = computer->GetOutput(
-          xent_name);
       // at this point, xent_deriv is posteriors derived from the numerator
       // computation.  note, xent_deriv has a factor of '.supervision.weight',
       // but so does tot_weight.
