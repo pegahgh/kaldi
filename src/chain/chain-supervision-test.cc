@@ -251,6 +251,8 @@ void ChainTrainingTest(const DenominatorGraph &den_graph,
     nnet_output.SetRandn();
 
   ChainTrainingOptions opts;
+  if (RandInt(0, 1) == 1)
+    opts.leaky_hmm_coefficient = 0.2;
 
   CuMatrix<BaseFloat> nnet_output_deriv(nnet_output.NumRows(),
                                         nnet_output.NumCols(),
@@ -418,21 +420,6 @@ void ChainDenominatorTest(const DenominatorGraph &den_graph) {
               << " vs. expected " << (num_sequences * frames_per_sequence);
     KALDI_ASSERT(output_deriv_sum - BaseFloat(num_sequences * frames_per_sequence) <
                  10.0);
-  }
-
-  { // another check: that scaling the initial probs has the expected effect.
-    BaseFloat scale = 0.1 + 0.7 * RandUniform();
-    DenominatorGraph den_graph_scaled(den_graph);
-    den_graph_scaled.ScaleInitialProbs(scale);
-    DenominatorComputation denominator_computation_scaled_initial(
-        opts, den_graph_scaled,
-        num_sequences, nnet_output);
-    BaseFloat forward_prob_scaled_initial =
-        denominator_computation_scaled_initial.Forward();
-    BaseFloat observed_difference =
-        forward_prob_scaled_initial - forward_prob,
-        predicted_difference = num_sequences * log(scale);
-    AssertEqual(observed_difference, predicted_difference);
   }
 
   int32 num_tries = 5;

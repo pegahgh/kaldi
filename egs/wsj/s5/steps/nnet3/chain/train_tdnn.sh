@@ -37,6 +37,7 @@ minibatch_size=512  # This default is suitable for GPU-based training.
                     # Set it to 128 for multi-threaded CPU-based training.
 lm_opts=   # options to chain-est-phone-lm
 l2_regularize=0.0
+leaky_hmm_coefficient=0.00001
 xent_regularize=0.0
 frames_per_iter=800000  # each iteration of training, see this many [input]
                         # frames per job.  This option is passed to get_egs.sh.
@@ -210,11 +211,10 @@ num_leaves=$(am-info $dir/0.trans_mdl | grep -w pdfs | awk '{print $NF}') || exi
 
 if [ $stage -le -5 ]; then
   echo "$0: creating neural net configs";
-  xent_opt=
-  [ "$xent_regularize" != "0.0" -a "$xent_regularize" != "0" ] && xent_opt="--add-xent-output=true"
 
   if [ ! -z "$jesus_opts" ]; then
-    python steps/nnet3/make_jesus_configs.py $xent_opt \
+    python steps/nnet3/make_jesus_configs.py \
+      --xent-regularize=$xent_regularize \
       --include-log-softmax=false \
       --splice-indexes "$splice_indexes"  \
       --feat-dim $feat_dim \
@@ -223,6 +223,8 @@ if [ $stage -le -5 ]; then
       --num-targets $num_leaves \
       $dir/configs || exit 1;
   else
+    [ $xent_regularize != "0.0" ] && \
+      echo "$0: --xent-regularize option not supported by tdnn/make_configs.py." && exit 1;
     if [ ! -z "$relu_dim" ]; then
       dim_opts="--relu-dim $relu_dim"
     else
@@ -236,7 +238,6 @@ if [ $stage -le -5 ]; then
     pool_opts=$pool_opts${pool_lpfilter_width:+" --pool-lpfilter-width $pool_lpfilter_width "}
 
     python steps/nnet3/tdnn/make_configs.py $pool_opts \
-      $xent_opt \
       --include-log-softmax=false \
       --final-layer-normalize-target $final_layer_normalize_target \
       --splice-indexes "$splice_indexes"  \
@@ -449,11 +450,11 @@ while [ $x -lt $num_iters ]; do
     # Set off jobs doing some diagnostics, in the background.
     # Use the egs dir from the previous iteration for the diagnostics
     $cmd $dir/log/compute_prob_valid.$x.log \
-      nnet3-chain-compute-prob --l2-regularize=$l2_regularize --xent-regularize=$xent_regularize \
+      nnet3-chain-compute-prob --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
           "nnet3-am-copy --raw=true $dir/$x.mdl -|" $dir/den.fst \
           "ark:nnet3-chain-merge-egs ark:$egs_dir/valid_diagnostic.cegs ark:- |" &
     $cmd $dir/log/compute_prob_train.$x.log \
-      nnet3-chain-compute-prob --l2-regularize=$l2_regularize  --xent-regularize=$xent_regularize \
+      nnet3-chain-compute-prob --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient  --xent-regularize=$xent_regularize \
           "nnet3-am-copy --raw=true $dir/$x.mdl -|" $dir/den.fst \
           "ark:nnet3-chain-merge-egs ark:$egs_dir/train_diagnostic.cegs ark:- |" &
 
@@ -511,7 +512,7 @@ while [ $x -lt $num_iters ]; do
 
         $cmd $train_queue_opt $dir/log/train.$x.$n.log \
           nnet3-chain-train --apply-deriv-weights=$apply_deriv_weights \
-             --l2-regularize=$l2_regularize  --xent-regularize=$xent_regularize \
+             --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
               $parallel_train_opts $deriv_time_opts \
              --max-param-change=$this_max_param_change \
             --print-interval=10 "$mdl" $dir/den.fst \
@@ -579,7 +580,7 @@ if [ $stage -le $num_iters ]; then
   # num-threads to 8 to speed it up (this isn't ideal...)
 
   $cmd $combine_queue_opt $dir/log/combine.log \
-    nnet3-chain-combine --num-iters=40  --l2-regularize=$l2_regularize \
+    nnet3-chain-combine --num-iters=40  --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient \
        --enforce-sum-to-one=true --enforce-positive-weights=true \
        --verbose=3 $dir/den.fst "${nnets_list[@]}" "ark:nnet3-chain-merge-egs --minibatch-size=$minibatch_size ark:$egs_dir/combine.cegs ark:-|" \
        "|nnet3-am-copy --set-raw-nnet=- $dir/$first_model_combine.mdl $dir/final.mdl" || exit 1;
@@ -589,11 +590,11 @@ if [ $stage -le $num_iters ]; then
   # the same subset we used for the previous compute_probs, as the
   # different subsets will lead to different probs.
   $cmd $dir/log/compute_prob_valid.final.log \
-    nnet3-chain-compute-prob --l2-regularize=$l2_regularize  --xent-regularize=$xent_regularize \
+    nnet3-chain-compute-prob --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
            "nnet3-am-copy --raw=true $dir/final.mdl - |" $dir/den.fst \
     "ark:nnet3-chain-merge-egs ark:$egs_dir/valid_diagnostic.cegs ark:- |" &
   $cmd $dir/log/compute_prob_train.final.log \
-    nnet3-chain-compute-prob --l2-regularize=$l2_regularize  --xent-regularize=$xent_regularize \
+    nnet3-chain-compute-prob --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
       "nnet3-am-copy --raw=true $dir/final.mdl - |" $dir/den.fst \
     "ark:nnet3-chain-merge-egs ark:$egs_dir/train_diagnostic.cegs ark:- |" &
 fi
