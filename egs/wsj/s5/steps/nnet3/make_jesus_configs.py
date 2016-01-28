@@ -40,6 +40,10 @@ parser.add_argument("--xent-regularize", type=float,
                     help="For chain models, if nonzero, add a separate output for cross-entropy "
                     "regularization (with learning-rate-factor equal to the inverse of this)",
                     default=0.0)
+parser.add_argument("--l2-regularize", type=float,
+                    help="For chain models, if nonzero, add a separate component and output with quadratic objective "
+                    "as l2 regularization which regress output of chain to be linear function of cross-entropy output",
+                    default=0.0)
 parser.add_argument("--use-repeated-affine", type=str,
                     help="if true use RepeatedAffineComponent, else BlockAffineComponent (i.e. no sharing)",
                     default="true", choices = ["false", "true"])
@@ -486,5 +490,14 @@ for l in range(1, num_hidden_layers + 1):
         print('component-node name=final-log-softmax-xent component=final-log-softmax-xent '
               'input=final-affine-xent', file=f)
         print('output-node name=output-xent input=final-log-softmax-xent', file=f)
-
+        if args.l2_regularize != 0.0:
+            # This block prints the configs for separate output with l2-norm objective, which models l2_regularization
+            # term for output and it minimizes distance of chain output and linearly transformed cross-entropy output. 
+            # It helps the chain output to be a linear function of cross entropy output. 
+            print('component name=final-affine-l2reg type=NaturalGradientAffineComponent '
+                  'input-dim={0} output-dim={1} param-stddev=0.0 bias-stddev=0 learning-rate-factor={2}'.format(
+                    args.num_targets, args.num_targets, args.l2_regularize), file=f)
+            print('component-node name=final-affine-l2reg component=final-affine-l2reg input=final-log-softmax-xent', 
+                file=f)
+            print('output-node name=output-l2reg input=final-affine-l2reg objective=quadratic', file=f)
     f.close()

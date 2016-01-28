@@ -50,11 +50,13 @@ NnetChainTrainer::NnetChainTrainer(const NnetChainTrainingOptions &opts,
 void NnetChainTrainer::Train(const NnetChainExample &chain_eg) {
   bool need_model_derivative = true;
   const NnetTrainerOptions &nnet_config = opts_.nnet_config;
-  bool use_xent_regularization = (opts_.chain_config.xent_regularize != 0.0);
+  bool use_xent_regularization = (opts_.chain_config.xent_regularize != 0.0),
+    use_l2_regularization = (opts_.chain_config.l2_regularize != 0.0);
   ComputationRequest request;
   GetChainComputationRequest(*nnet_, chain_eg, need_model_derivative,
                              nnet_config.store_component_stats,
                              use_xent_regularization, need_model_derivative,
+                             use_l2_regularization, need_model_derivative,
                              &request);
   const NnetComputation *computation = compiler_.Compile(request);
 
@@ -112,23 +114,42 @@ void NnetChainTrainer::ProcessOutputs(const NnetChainExample &eg,
 
     bool use_xent = (opts_.chain_config.xent_regularize != 0.0);
     std::string xent_name = sup.name + "-xent";  // typically "output-xent".
-    CuMatrix<BaseFloat> xent_deriv;
-    if (use_xent)
+    CuMatrix<BaseFloat> xent_deriv, xent_output;
+    if (use_xent) {
       xent_deriv.Resize(nnet_output.NumRows(), nnet_output.NumCols(),
                         kUndefined);
+      // this block computes the cross-entropy objective.
+      xent_output = computer->GetOutput(xent_name);
+    }
 
-    BaseFloat tot_objf, tot_l2_term, tot_weight;
+    BaseFloat tot_objf, tot_l2_term, tot_weight; 
 
     ComputeChainObjfAndDeriv(opts_.chain_config, den_graph_,
-                             sup.supervision, nnet_output,
+                             sup.supervision, nnet_output, 
                              &tot_objf, &tot_l2_term, &tot_weight,
                              &nnet_output_deriv,
                              (use_xent ? &xent_deriv : NULL));
 
+    bool use_l2reg = (opts_.chain_config.l2_regularize != 0.0);
+    std::string l2reg_name = sup.name + "-l2reg";  // typically "output-l2reg".
+    node_index = nnet_->GetNodeIndex(l2reg_name);
+    if (node_index < 0 || 
+        !nnet_->IsOutputNode(node_index))
+      KALDI_ERR << "Network has no output named " << l2reg_name;
+
+    ObjectiveType obj_type = nnet_->GetNode(node_index).u.objective_type;
+    BaseFloat l2reg_coeff = sup.supervision.weight * opts_.chain_config.l2_regularize;
+    bool supply_deriv = true; 
+    if (use_l2reg) {
+      ComputeGeneralObjectiveFunction(sup.name, l2reg_name, obj_type, l2reg_coeff, supply_deriv,
+                                      computer, &tot_weight, &tot_l2_term);
+
+      objf_info_[l2reg_name].UpdateStats(l2reg_name, opts_.nnet_config.print_interval,
+                                        num_minibatches_processed_,
+                                        tot_weight, tot_l2_term); 
+    }
+
     if (use_xent) {
-      // this block computes the cross-entropy objective.
-      const CuMatrixBase<BaseFloat> &xent_output = computer->GetOutput(
-          xent_name);
       // at this point, xent_deriv is posteriors derived from the numerator
       // computation.  note, xent_objf has a factor of '.supervision.weight'
       BaseFloat xent_objf = TraceMatMat(xent_output, xent_deriv, kTrans);
@@ -136,7 +157,7 @@ void NnetChainTrainer::ProcessOutputs(const NnetChainExample &eg,
                                         num_minibatches_processed_,
                                         tot_weight, xent_objf);
     }
-
+    
     if (opts_.apply_deriv_weights && sup.deriv_weights.Dim() != 0) {
       CuVector<BaseFloat> cu_deriv_weights(sup.deriv_weights);
       nnet_output_deriv.MulRowsVec(cu_deriv_weights);

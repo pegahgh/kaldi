@@ -203,7 +203,19 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
                               BaseFloat *tot_weight,
                               BaseFloat *tot_objf);
 
-
+/**
+  This function is similar to previous one and computes the objective function.
+  The difference is that the supervision is another output node, and the derivatives is 
+  computed w.r.t. two output nodes.
+**/
+void ComputeGeneralObjectiveFunction(const std::string &sup_output_name,
+                                     const std::string &output_name,
+                                     ObjectiveType objective_type,
+                                     BaseFloat obj_scale,
+                                     bool supply_deriv,
+                                     NnetComputer *computer,
+                                     BaseFloat *tot_weight,
+                                     BaseFloat *tot_objf); 
 
 } // namespace nnet3
 } // namespace kaldi

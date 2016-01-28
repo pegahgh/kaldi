@@ -73,10 +73,14 @@ void NnetChainComputeProb::Compute(const NnetChainExample &chain_eg) {
   // model-combination code) we decided to keep it simple and just use the
   // regular objective.
   bool use_xent_regularization = (chain_config_.xent_regularize != 0.0),
+       use_l2_regularization = (chain_config_.l2_regularize != 0.0),
       use_xent_derivative = false;
+
   GetChainComputationRequest(nnet_, chain_eg, need_model_derivative,
                              store_component_stats, use_xent_regularization,
-                             use_xent_derivative, &request);
+                             use_xent_derivative, 
+                             use_l2_regularization, use_xent_derivative,
+                             &request);
   const NnetComputation *computation = compiler_.Compile(request);
   NnetComputer computer(nnet_config_.compute_config, *computation,
                         nnet_, deriv_nnet_);
@@ -119,7 +123,24 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
                              &tot_like, &tot_l2_term, &tot_weight,
                              (nnet_config_.compute_deriv ? &nnet_output_deriv :
                               NULL), (use_xent ? &xent_deriv : NULL));
-    
+
+    bool use_l2reg = (chain_config_.l2_regularize != 0.0);
+    std::string l2reg_name = sup.name + "-l2reg";  // typically "output-l2reg".
+    node_index = nnet_.GetNodeIndex(l2reg_name);
+    if (node_index < 0 || 
+        !nnet_.IsOutputNode(node_index))
+      KALDI_ERR << "Network has no output named " << l2reg_name;
+
+    ObjectiveType obj_type = nnet_.GetNode(node_index).u.objective_type;
+    BaseFloat l2reg_coeff = sup.supervision.weight * chain_config_.l2_regularize;
+    bool supply_deriv = false; 
+    if (use_l2reg) {
+      ComputeGeneralObjectiveFunction(sup.name, l2reg_name, obj_type, l2reg_coeff, supply_deriv,
+                                      computer, &tot_weight, &tot_l2_term);
+
+    }
+
+ 
     // note: in this context we don't want to apply 'sup.deriv_weights' because
     // this code is used only in combination, where it's part of an L-BFGS
     // optimization algorithm, and in that case if there is a mismatch between

@@ -361,11 +361,13 @@ void GetChainComputationRequest(const Nnet &nnet,
                                 bool store_component_stats,
                                 bool use_xent_regularization,
                                 bool use_xent_derivative,
+                                bool use_l2_regularization, 
+                                bool use_l2_derivative,
                                 ComputationRequest *request) {
   request->inputs.clear();
   request->inputs.reserve(eg.inputs.size());
   request->outputs.clear();
-  request->outputs.reserve(eg.outputs.size() * 2);
+  request->outputs.reserve(eg.outputs.size() * 3);
   request->need_model_derivative = need_model_derivative;
   request->store_component_stats = store_component_stats;
   for (size_t i = 0; i < eg.inputs.size(); i++) {
@@ -409,6 +411,18 @@ void GetChainComputationRequest(const Nnet &nnet,
       io_spec_xent = io_spec;
       io_spec_xent.name = name + "-xent";
       io_spec_xent.has_deriv = use_xent_derivative;
+    }
+    if (use_l2_regularization) {
+      size_t cur_size = request->outputs.size();
+      request->outputs.resize(cur_size + 1);  
+      IoSpecification &io_spec = request->outputs[cur_size - 1],
+        &io_spec_l2reg = request->outputs[cur_size];
+      // the IoSpecification for -l2reg output is the same
+      // as regular output with quadratic objective,, expect its name
+      // which has the -l2reg suffix.
+      io_spec_l2reg = io_spec;
+      io_spec_l2reg.name = name + "-l2reg";
+      io_spec_l2reg.has_deriv = use_l2_derivative;
     }
   }
   // check to see if something went wrong.

@@ -214,6 +214,7 @@ if [ $stage -le -5 ]; then
 
   if [ ! -z "$jesus_opts" ]; then
     python steps/nnet3/make_jesus_configs.py \
+      --l2-regularize=$l2_regularize \
       --xent-regularize=$xent_regularize \
       --include-log-softmax=false \
       --splice-indexes "$splice_indexes"  \

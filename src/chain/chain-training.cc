@@ -98,7 +98,8 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
       row_products_per_frame(i / num_sequences) += row_products_cpu(i);
     KALDI_LOG << "Derivs per frame are " << row_products_per_frame;
   }
-
+  
+  /*
   if (opts.l2_regularize == 0.0) {
     *l2_term = 0.0;
   } else {
@@ -108,6 +109,7 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
     if (nnet_output_deriv)
       nnet_output_deriv->AddMat(-1.0 * scale, nnet_output);
   }
+  */
 }
 
 

@@ -266,6 +266,61 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
   }
 }
 
+void ComputeGeneralObjectiveFunction(const std::string &sup_output_name,
+                                     const std::string &output_name,
+                                     ObjectiveType objective_type,
+                                     BaseFloat obj_scale,
+                                     bool supply_deriv,
+                                     NnetComputer *computer,
+                                     BaseFloat *tot_weight,
+                                     BaseFloat *tot_objf) {
+  const CuMatrixBase<BaseFloat> &output = computer->GetOutput(output_name),
+    &sup_output = computer->GetOutput(sup_output_name);
+
+  if (output.NumCols() != sup_output.NumCols())
+    KALDI_ERR << "Nnet versus example output dimension (num-classes) "
+              << "mismatch for '" << output_name << "': " << output.NumCols()
+              << " (nnet) vs. supervision output " << sup_output_name << "': " 
+              << sup_output.NumCols() << "\n";
+
+  switch (objective_type) {
+    case kLinear: {
+      // objective is obj_scale * sup_out * out.
+      *tot_weight = sup_output.Sum();
+      *tot_objf = TraceMatMat(output, sup_output, kTrans);
+      if (supply_deriv) {
+        CuMatrix<BaseFloat> scaled_sup_out(sup_output);
+        scaled_sup_out.Scale(obj_scale);
+        computer->AcceptOutputDeriv(output_name, &scaled_sup_out);
+        CuMatrix<BaseFloat> scaled_out(output);
+        scaled_out.Scale(obj_scale);
+        computer->AcceptOutputDeriv(sup_output_name, &scaled_out);
+      }
+      break;
+    }
+    case kQuadratic: {
+      // objective is -0.5 * obj_scale * (sup_out - out)^2
+      CuMatrix<BaseFloat> diff(sup_output.NumRows(),
+                               sup_output.NumCols(),
+                               kUndefined);
+      diff.CopyFromMat(sup_output);
+      diff.AddMat(-1.0, output);
+      *tot_weight = diff.NumRows();
+      *tot_objf = -0.5 * obj_scale * TraceMatMat(diff, diff, kTrans);
+      diff.Scale(obj_scale);
+      CuMatrix<BaseFloat> out_deriv1(diff);
+      if (supply_deriv) {
+        computer->AcceptOutputDeriv(output_name, &out_deriv1);
+        diff.Scale(-1.0);
+        computer->AcceptOutputDeriv(sup_output_name, &diff);
+      }
+      break;
+    }
+    default:
+      KALDI_ERR << "Objective function type " << objective_type
+                << " not handled.";
+  }
+}
 
 
 } // namespace nnet3

@@ -50,15 +50,15 @@ int main(int argc, char *argv[]) {
     opts.acoustic_scale = 1.0; // by default do no scaling in this recipe.
 
     bool apply_exp = false;
-    std::string use_gpu = "yes";
-
+    std::string use_gpu = "yes";  
+    std::string output_name = "output";
     std::string word_syms_filename;
     std::string ivector_rspecifier,
                 online_ivector_rspecifier,
                 utt2spk_rspecifier;
     int32 online_ivector_period = 0;
     opts.Register(&po);
-
+    po.Register("output-name", &output_name, "The output is computed for output_name component."); 
     po.Register("ivectors", &ivector_rspecifier, "Rspecifier for "
                 "iVectors as vectors (i.e. not estimated online); per utterance "
                 "by default, or per speaker if you provide the --utt2spk option.");
