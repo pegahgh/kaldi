@@ -113,28 +113,36 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
       //compute offset and scale
       // The objecitve is to minimize L w.r.t scale_i, offset_i, 
       // L = -0.5 * l2_regularize * 
-      //    \sum_{j=1}^{minibatch_size}(\sum_i (nnet_output_ji - target_ji)^2),
-      // where the target_ji = scale_i * xent_output_ji + offset_i. 
-      // scale_i = \sum_j (nnet_output_ji * xent_output_ji) / \sum_j(xent_output_ji^2)
-      // offset_i = 1 ./ minibatch_size * \sum_j (nnet_output_ji - scale_i * xent_output_ji)
+      //    \sum_{j=1}^{m_size}(\sum_i (nnet_output_ji - target_ji)^2),
+      // where the target_ji = scale_i * xent_output_ji + offset_i.
+      // 
+      // scale_i = [\sum_j (nnet_output_ji * xent_output_ji) - 
+      //           1/m_size * \sum_j(nnet_output_ji) * \sum_j(xent_output_ji)] / 
+      //           [\sum_j(xent_output_ji^2) - 1/m_size * (\sum_j(xent_output_ji))^2]
+      // offset_i = 1 ./ m_size * \sum_j (nnet_output_ji - scale_i * xent_output_ji)
+      // where m_size is minibatch_size.
       CuVector<BaseFloat> scale(xent_output->NumCols()), 
         offset(xent_output->NumCols()), 
-        scaled_xent_col_sum(xent_output->NumCols());
-      CuVector<BaseFloat> nnet_nnet_product(nnet_output.NumCols());
+        nnet_col_sum(nnet_output.NumCols()),
+        xent_col_sum(xent_output->NumCols()),
+        scale_denom(nnet_output.NumCols());
+
+      nnet_col_sum.AddRowSumMat(1.0, nnet_output, 0.0);
+      xent_col_sum.AddRowSumMat(1.0, *xent_output, 0.0); 
       scale.AddDiagMatMat(1.0, *xent_output, kTrans, nnet_output, kNoTrans, 0.0);
-      nnet_nnet_product.AddDiagMat2(1.0, *xent_output, kTrans, 0.0);
-      scale.DivElements(nnet_nnet_product);
+      scale.AddVecVec(-1.0 / nnet_output.NumRows(), nnet_col_sum, xent_col_sum, 1.0);
+      scale_denom.AddDiagMat2(1.0, *xent_output, kTrans, 0.0);
+      scale_denom.AddVecVec(-1.0 / nnet_output.NumRows(), xent_col_sum, xent_col_sum, 1.0);
+      scale.DivElements(scale_denom);
       
-      offset.AddRowSumMat(1.0 / xent_output->NumRows(), nnet_output, 0.0);
-      scaled_xent_col_sum.AddRowSumMat(1.0, *xent_output, 0.0);
-      scaled_xent_col_sum.MulElements(scale);
-      offset.AddVec(-1.0 / xent_output->NumRows(), scaled_xent_col_sum);
+      offset.AddVec(1.0 / xent_output->NumRows(), nnet_col_sum);
+      offset.AddVecVec(-1.0 / xent_output->NumRows(), scale, xent_col_sum, 1.0);
       
       if (rand() % 10 == 1)
         KALDI_LOG << "l1_norm(scale) = " << scale.Norm(1.0) 
                   << " l1_norm(offset) = " << offset.Norm(1.0);
 
-      //output_diff = (scale * xent_output + offset) - nnet_output;
+      //output_diff = (xent_output * diag(scale) + offset) - nnet_output;
       CuMatrix<BaseFloat> output_diff(xent_output->NumRows(), xent_output->NumCols());
       output_diff.AddMatDiagVec(1.0, *xent_output, kNoTrans, scale, 0.0);
       output_diff.AddVecToRows(1.0, offset);
