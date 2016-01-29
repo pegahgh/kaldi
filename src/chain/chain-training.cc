@@ -29,7 +29,7 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
                               const DenominatorGraph &den_graph,
                               const Supervision &supervision,
                               const CuMatrixBase<BaseFloat> &nnet_output,
-                              const CuMatrixBase<BaseFloat> &xent_output,
+                              const CuMatrixBase<BaseFloat> *xent_output,
                               BaseFloat *objf,
                               BaseFloat *l2_term,                              
                               BaseFloat *weight,
@@ -109,7 +109,7 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
     // to be a linear function of cross-entropy output.
     // It minimizes -0.5 * l2_regularize * l2_norm(diag(scale) * x + offset - y)^2, 
     // where x is cross-entropy output and y is chain output.
-    if (xent_output.NumRows() != 0) {
+    if (xent_output) {
       //compute offset and scale
       // The objecitve is to minimize L w.r.t scale_i, offset_i, 
       // L = -0.5 * l2_regularize * 
@@ -117,22 +117,26 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
       // where the target_ji = scale_i * xent_output_ji + offset_i. 
       // scale_i = \sum_j (nnet_output_ji * xent_output_ji) / \sum_j(xent_output_ji^2)
       // offset_i = 1 ./ minibatch_size * \sum_j (nnet_output_ji - scale_i * xent_output_ji)
-      CuVector<BaseFloat> scale(xent_output.NumCols()), 
-        offset(xent_output.NumCols()), ones(xent_output.NumRows()),
-        scaled_xent_col_sum(xent_output.NumRows());
+      CuVector<BaseFloat> scale(xent_output->NumCols()), 
+        offset(xent_output->NumCols()), 
+        scaled_xent_col_sum(xent_output->NumCols());
       CuVector<BaseFloat> nnet_nnet_product(nnet_output.NumCols());
-      scale.AddDiagMatMat(1.0, xent_output, kTrans, nnet_output, kNoTrans, 0.0);
-      nnet_nnet_product.AddDiagMat2(1.0, xent_output, kTrans, 0.0);
+      scale.AddDiagMatMat(1.0, *xent_output, kTrans, nnet_output, kNoTrans, 0.0);
+      nnet_nnet_product.AddDiagMat2(1.0, *xent_output, kTrans, 0.0);
       scale.DivElements(nnet_nnet_product);
       
-      offset.AddMatVec(1.0 / xent_output.NumRows(), nnet_output, kTrans, ones, 0.0);
-      scaled_xent_col_sum.AddMatVec(1.0, xent_output, kTrans, ones, 0.0);
+      offset.AddRowSumMat(1.0 / xent_output->NumRows(), nnet_output, 0.0);
+      scaled_xent_col_sum.AddRowSumMat(1.0, *xent_output, 0.0);
       scaled_xent_col_sum.MulElements(scale);
-      offset.AddVec(-1.0 / xent_output.NumRows(), scaled_xent_col_sum);
+      offset.AddVec(-1.0 / xent_output->NumRows(), scaled_xent_col_sum);
+      
+      if (rand() % 10 == 1)
+        KALDI_LOG << "l1_norm(scale) = " << scale.Norm(1.0) 
+                  << " l1_norm(offset) = " << offset.Norm(1.0);
 
       //output_diff = (scale * xent_output + offset) - nnet_output;
-      CuMatrix<BaseFloat> output_diff(xent_output.NumRows(), xent_output.NumCols());
-      output_diff.AddMatDiagVec(1.0, xent_output, kNoTrans, scale, 0.0);
+      CuMatrix<BaseFloat> output_diff(xent_output->NumRows(), xent_output->NumCols());
+      output_diff.AddMatDiagVec(1.0, *xent_output, kNoTrans, scale, 0.0);
       output_diff.AddVecToRows(1.0, offset);
       output_diff.AddMat(-1.0, nnet_output);
       *l2_term = -0.5 * scale_coeff * TraceMatMat(output_diff, output_diff, kTrans);
