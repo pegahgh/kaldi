@@ -155,14 +155,6 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
     }
   }
 }
-// This function computes scale and offset parameters, where
-// (scale, offset) = argmin \sum_j[diag(scale) * xj + offset - yj], 
-// where x_j and y_j are jth example in input1 and input2 respectively. 
-void ComputeScaleOffset(const CuMatrixBase<BaseFloat> &input1,
-                        const CuMatrixBase<BaseFloat> &input2,
-                        CuVector<BaseFloat> *scale,
-                        CuVector<BaseFloat> *offset) {
-  
-}
+
 }  // namespace chain
 }  // namespace kaldi
