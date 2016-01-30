@@ -94,6 +94,9 @@ struct ChainTrainingOptions {
                           ((supervision.num_sequences * supervision.frames_per_sequence) by
                             den_graph.NumPdfs()).  The rows are ordered as: all sequences
                             for frame 0; all sequences for frame 1; etc.
+   @param [in] xent_output  The output of cross entropy; dimension mus equal nnet_output
+                            If non-NULL, the l2 regularization regresses 
+                            nnet_output to be linear function of xent_output.
    @param [out] objf       The [num - den] objective function computed for this
                            example; you'll want to divide it by 'tot_weight' before
                            displaying it.
@@ -111,11 +114,13 @@ struct ChainTrainingOptions {
                            scaled by the supervision weight) is written to here.  This will
                            be used in the cross-entropy regularization code.  This value
                            is also used in computing the cross-entropy objective value.
+     
 */
 void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
                               const DenominatorGraph &den_graph,
                               const Supervision &supervision,
                               const CuMatrixBase<BaseFloat> &nnet_output,
+                              const CuMatrixBase<BaseFloat> *xent_output,
                               BaseFloat *objf,
                               BaseFloat *l2_term,
                               BaseFloat *weight,

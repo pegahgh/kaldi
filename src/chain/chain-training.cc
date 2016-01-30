@@ -25,10 +25,60 @@
 namespace kaldi {
 namespace chain {
 
+/**
+   This function computes offset and scale, where Y is regressed to
+   be linear function of X. and linear least square model is
+   used to compute scale and offset coefficients.
+
+   The objecitve is to minimize L w.r.t scale_i, offset_i, 
+   L = \sum_{j=1}^{n}(\sum_i (x_ji - target_ji)^2),
+   where the target_ji = scale_i * y_ji + offset_i.
+
+   scale_i = [\sum_j (x_ji * y_ji) - 
+             1/n * \sum_j(x_ji) * \sum_j(y_ji)] / 
+             [\sum_j(y_ji^2) - 1/n * (\sum_j(y_ji))^2]
+   offset_i = 1/n * \sum_j (x_ji - scale_i * y_ji)
+   where n is the number of exampls.
+
+   @param [in] x        The rows of x contains examples for dependent variable X.
+   @param [in] y        The rows of y contains examples for indepent variable Y.
+
+   @param [out] scale   The scale parameter computed  w.r.t least 
+                        square method.
+   @param [out] offset  The offset parameter computed w.r.t least
+                        square method.
+ **/
+void LeastSquareRegression(const CuMatrixBase<BaseFloat> &x,
+                           const CuMatrixBase<BaseFloat> &y,
+                           CuVector<BaseFloat> *scale,
+                           CuVector<BaseFloat> *offset) {
+  CuVector<BaseFloat> x_col_sum(x.NumCols()),
+                      y_col_sum(x.NumCols()),
+                      scale_denom(x.NumCols());
+  scale->Resize(x.NumCols());
+  offset->Resize(x.NumCols());
+  x_col_sum.AddRowSumMat(1.0, x, 0.0);
+  y_col_sum.AddRowSumMat(1.0, y, 0.0); 
+  scale->AddDiagMatMat(1.0, y, kTrans, x, kNoTrans, 0.0);
+  scale->AddVecVec(-1.0 / x.NumRows(), x_col_sum, y_col_sum, 1.0);
+  scale_denom.AddDiagMat2(1.0, y, kTrans, 0.0);
+  scale_denom.AddVecVec(-1.0 / x.NumRows(), y_col_sum, y_col_sum, 1.0);
+  scale->DivElements(scale_denom);
+  
+  offset->AddVec(1.0 / y.NumRows(), x_col_sum);
+  offset->AddVecVec(-1.0 / y.NumRows(), *scale, y_col_sum, 1.0);
+  
+  if (GetVerboseLevel() >= 1)
+    KALDI_LOG << "l1_norm(scale) = " << scale->Norm(1.0) 
+              << " l1_norm(offset) = " << offset->Norm(1.0);
+
+}
+
 void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
                               const DenominatorGraph &den_graph,
                               const Supervision &supervision,
                               const CuMatrixBase<BaseFloat> &nnet_output,
+                              const CuMatrixBase<BaseFloat> *xent_output,
                               BaseFloat *objf,
                               BaseFloat *l2_term,                              
                               BaseFloat *weight,
@@ -103,13 +153,40 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
     *l2_term = 0.0;
   } else {
     // compute the l2 penalty term and its derivative
-    BaseFloat scale = supervision.weight * opts.l2_regularize;
-    *l2_term = -0.5 * scale * TraceMatMat(nnet_output, nnet_output, kTrans);
-    if (nnet_output_deriv)
-      nnet_output_deriv->AddMat(-1.0 * scale, nnet_output);
+    BaseFloat scale_coeff = supervision.weight * opts.l2_regularize;
+    // If xent_output provided, l2 penalty is trying to regress the chain output
+    // to be a linear function of cross-entropy output.
+
+    // It minimizes -0.5 * l2_regularize * l2_norm(diag(scale) * x + offset - y)^2, 
+    // where x is cross-entropy output and y is chain output.
+    if (xent_output) {
+      CuVector<BaseFloat> scale, offset;
+      LeastSquareRegression(nnet_output, *xent_output, 
+                            &scale, &offset);
+
+      //output_diff = (xent_output * diag(scale) + offset) - nnet_output;
+      CuMatrix<BaseFloat> output_diff(xent_output->NumRows(), xent_output->NumCols());
+      output_diff.AddMatDiagVec(1.0, *xent_output, kNoTrans, scale, 0.0);
+      output_diff.AddVecToRows(1.0, offset);
+      output_diff.AddMat(-1.0, nnet_output);
+      *l2_term = -0.5 * scale_coeff * TraceMatMat(output_diff, output_diff, kTrans);
+
+      //update the nnet_output and xent_output derivative w.r.t. regularizer term.
+      if (nnet_output_deriv)
+        nnet_output_deriv->AddMat(scale_coeff, output_diff);
+
+      if (xent_output_deriv) 
+        xent_output_deriv->AddMatDiagVec(-1.0 * scale_coeff, output_diff, kNoTrans, scale, 1.0);
+
+    } else {
+      *l2_term = -0.5 * scale_coeff * TraceMatMat(nnet_output, nnet_output, kTrans);
+      if (nnet_output_deriv)
+        nnet_output_deriv->AddMat(-1.0 * scale_coeff, nnet_output);
+    }
   }
 }
 
 
+                    
 }  // namespace chain
 }  // namespace kaldi
