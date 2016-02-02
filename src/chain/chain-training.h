@@ -120,14 +120,53 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
                               const DenominatorGraph &den_graph,
                               const Supervision &supervision,
                               const CuMatrixBase<BaseFloat> &nnet_output,
-                              const CuMatrixBase<BaseFloat> *xent_output,
                               BaseFloat *objf,
-                              BaseFloat *l2_term,
                               BaseFloat *weight,
                               CuMatrixBase<BaseFloat> *nnet_output_deriv,
                               CuMatrixBase<BaseFloat> *xent_output_deriv = NULL);
                               
+/**
+   This function computes offset and scale, where Y is regressed to
+   be linear function of X. Linear least square method is
+   used to compute scale and offset coefficients.
 
+   The objecitve is to minimize L w.r.t scale_i, offset_i, 
+   L = \sum_{j=1}^{n}(\sum_i (y_ji - target_ji)^2),
+   where the target_ji = scale_i * x_ji + offset_i.
+
+   scale_i = [\sum_j (x_ji * y_ji) - 
+             1/n * \sum_j(x_ji) * \sum_j(y_ji)] / 
+             [\sum_j(x_ji^2) - 1/n * (\sum_j(x_ji))^2]
+   offset_i = 1/n * \sum_j (y_ji - scale_i * x_ji)
+   where n is the number of exampls.
+
+   @param [in] x        The elements of x contains examples for independent variable X.
+   @param [in] y        The elements of y contains examples for dependent variable Y.
+
+   @param [out] scale   The scale parameter  
+   @param [out] offset  The offset parameter 
+ **/
+void LeastSquareRegression(const CuMatrixBase<BaseFloat> &x,
+                           const CuMatrixBase<BaseFloat> &y,
+                           CuVector<BaseFloat> *scale,
+                           CuVector<BaseFloat> *offset); 
+
+/**
+  This function computes weighted l2-regularization term and updates the 
+  derivatives. The weighted l2-regularization is a weighted combination of output dims,
+  and the objective is L = \sum_{j=1}^{n}(\sum_i weight_i * (y_ji - target_ji)^2).
+  If xent_output is not null, l2_term regress 
+  output of chain output to be linear function of cross-entropy output,
+  and target_ji = alpha_i * x_ji + offset_i.
+  Otherwise, the l2_term minimize l2_norm of chain output and target_ji = 0.
+**/
+void ComputeRegularizationTerm(const CuMatrixBase<BaseFloat> &nnet_output,
+                               const CuMatrixBase<BaseFloat> *xent_output,
+                               const CuVectorBase<BaseFloat> *weight,
+                               BaseFloat l2_regularize,
+                               BaseFloat *l2_term,
+                               CuMatrixBase<BaseFloat> *nnet_output_deriv,
+                               CuMatrixBase<BaseFloat> *xent_output_deriv = NULL);
 
 }  // namespace chain
 }  // namespace kaldi

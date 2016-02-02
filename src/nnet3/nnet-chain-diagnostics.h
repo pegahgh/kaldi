@@ -57,7 +57,8 @@ class NnetChainComputeProb {
   NnetChainComputeProb(const NnetComputeProbOptions &nnet_config,
                        const chain::ChainTrainingOptions &chain_config,
                        const fst::StdVectorFst &den_fst,
-                       const Nnet &nnet);
+                       const Nnet &nnet,
+                       const CuVector<BaseFloat> *output_weights = NULL);
 
   // Reset the likelihood stats, and the derivative stats (if computed).
   void Reset();
@@ -87,6 +88,9 @@ class NnetChainComputeProb {
   const Nnet &nnet_;
   CachingOptimizingCompiler compiler_;
   Nnet *deriv_nnet_;
+  const CuVector<BaseFloat> *output_weights_; // The output classes in l2_regularization is penalized 
+                                        // with output_weights_, which can set equal to class
+                                        // priors.
   int32 num_minibatches_processed_;  // this is only for diagnostics
 
   unordered_map<std::string, ChainObjectiveInfo, StringHasher> objf_info_;

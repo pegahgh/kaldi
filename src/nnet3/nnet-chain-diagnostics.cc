@@ -27,11 +27,13 @@ NnetChainComputeProb::NnetChainComputeProb(
     const NnetComputeProbOptions &nnet_config,
     const chain::ChainTrainingOptions &chain_config,
     const fst::StdVectorFst &den_fst,
-    const Nnet &nnet):
+    const Nnet &nnet,
+    const CuVector<BaseFloat> *output_weights):
     nnet_config_(nnet_config),
     chain_config_(chain_config),
     den_graph_(den_fst, nnet.OutputDim("output")),
     nnet_(nnet),
+    output_weights_(output_weights),
     compiler_(nnet, nnet_config_.optimize_config),
     deriv_nnet_(NULL),
     num_minibatches_processed_(0) {
@@ -120,11 +122,20 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
 
     BaseFloat tot_like, tot_l2_term, tot_weight;
     ComputeChainObjfAndDeriv(chain_config_, den_graph_,
-                             sup.supervision, nnet_output, xent_output,
-                             &tot_like, &tot_l2_term, &tot_weight,
+                             sup.supervision, nnet_output, 
+                             &tot_like, &tot_weight,
                              (nnet_config_.compute_deriv ? &nnet_output_deriv :
                               NULL), (use_xent ? &xent_deriv : NULL));
-    
+    if (chain_config_.l2_regularize != 0) {
+      BaseFloat l2_reg = chain_config_.l2_regularize *
+                         sup.supervision.weight;
+      chain::ComputeRegularizationTerm(nnet_output, xent_output,
+                               output_weights_,
+                               l2_reg, &tot_l2_term, 
+                               (nnet_config_.compute_deriv ? &nnet_output_deriv :
+                               NULL),
+                               (use_xent ? &xent_deriv : NULL));
+    }
     // note: in this context we don't want to apply 'sup.deriv_weights' because
     // this code is used only in combination, where it's part of an L-BFGS
     // optimization algorithm, and in that case if there is a mismatch between

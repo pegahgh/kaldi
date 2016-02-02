@@ -19,6 +19,7 @@
 
 #include "base/kaldi-common.h"
 #include "util/common-utils.h"
+#include "nnet3/am-nnet-simple.h"
 #include "nnet3/nnet-chain-training.h"
 
 
@@ -41,11 +42,13 @@ int main(int argc, char *argv[]) {
         "nnet3-chain-train 1.raw den.fst 'ark:nnet3-merge-egs 1.cegs ark:-|' 2.raw\n";
 
     bool binary_write = true;
-    std::string use_gpu = "yes";
+    std::string use_gpu = "yes",
+      prior_rspecifier;
     NnetChainTrainingOptions opts;
 
     ParseOptions po(usage);
     po.Register("binary", &binary_write, "Write output in binary mode");
+    po.Register("prior", &prior_rspecifier, "The name of file contains pdf-priors.");
     po.Register("use-gpu", &use_gpu,
                 "yes|no|optional|wait, only has effect if compiled with CUDA");
 
@@ -68,12 +71,19 @@ int main(int argc, char *argv[]) {
         nnet_wxfilename = po.GetArg(4);
 
     Nnet nnet;
+    Vector<BaseFloat> prior_vec;
     ReadKaldiObject(nnet_rxfilename, &nnet);
-
+    if (!prior_rspecifier.empty()) {
+      ReadKaldiObject(prior_rspecifier, &prior_vec); 
+      KALDI_ASSERT(prior_vec.Sum() > 0.0);
+      prior_vec.Scale(1.0 / prior_vec.Sum()); // renormalize priors
+    }
+    const CuVector<BaseFloat> *cu_prior_vec = new CuVector<BaseFloat>(prior_vec);
+    
     fst::StdVectorFst den_fst;
     ReadFstKaldi(den_fst_rxfilename, &den_fst);
-
-    NnetChainTrainer trainer(opts, den_fst, &nnet);
+    
+    NnetChainTrainer trainer(opts, den_fst, &nnet, cu_prior_vec);
 
     SequentialNnetChainExampleReader example_reader(examples_rspecifier);
 

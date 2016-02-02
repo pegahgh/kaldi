@@ -20,6 +20,7 @@
 #include "base/kaldi-common.h"
 #include "util/common-utils.h"
 #include "nnet3/nnet-chain-diagnostics.h"
+#include "nnet3/am-nnet-simple.h"
 
 
 int main(int argc, char *argv[]) {
@@ -42,12 +43,13 @@ int main(int argc, char *argv[]) {
     // used for diagnostics, and you can just compute them with a small enough
     // amount of data that a CPU can do it within reasonable time.
     // It wouldn't be hard to make it support GPU, though.
+    std::string prior_rspecifier;
 
     NnetComputeProbOptions nnet_opts;
     chain::ChainTrainingOptions chain_opts;
 
     ParseOptions po(usage);
-
+    po.Register("prior", &prior_rspecifier, "The name of file contains pdf-priors.");
     nnet_opts.Register(&po);
     chain_opts.Register(&po);
 
@@ -63,13 +65,20 @@ int main(int argc, char *argv[]) {
         examples_rspecifier = po.GetArg(3);
 
     Nnet nnet;
+    Vector<BaseFloat> prior_vec;
     ReadKaldiObject(nnet_rxfilename, &nnet);
+    if (!prior_rspecifier.empty()) {
+      ReadKaldiObject(prior_rspecifier, &prior_vec); 
+      KALDI_ASSERT(prior_vec.Sum() > 0.0);
+      prior_vec.Scale(1.0 / prior_vec.Sum()); // renormalize priors
+    }
+    const CuVector<BaseFloat> *cu_prior_vec = new CuVector<BaseFloat>(prior_vec);
 
     fst::StdVectorFst den_fst;
     ReadFstKaldi(den_fst_rxfilename, &den_fst);
 
     NnetChainComputeProb chain_prob_computer(nnet_opts, chain_opts, den_fst,
-                                            nnet);
+                                            nnet, cu_prior_vec);
 
     SequentialNnetChainExampleReader example_reader(examples_rspecifier);
 

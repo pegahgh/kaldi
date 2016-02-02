@@ -56,7 +56,8 @@ class NnetChainTrainer {
  public:
   NnetChainTrainer(const NnetChainTrainingOptions &config,
                    const fst::StdVectorFst &den_fst,
-                   Nnet *nnet);
+                   Nnet *nnet,
+                   const CuVector<BaseFloat> *output_weights = NULL);
 
   // train on one minibatch.
   void Train(const NnetChainExample &eg);
@@ -79,6 +80,9 @@ class NnetChainTrainer {
                       // it's better to consider it as a delta-parameter nnet.
   CachingOptimizingCompiler compiler_;
 
+  const CuVector<BaseFloat> *output_weights_; // The output classes in l2_regularization is penalized 
+                                        // with output_weights_, which can set equal to class
+                                        // priors.
   // This code supports multiple output layers, even though in the
   // normal case there will be just one output layer named "output".
   // So we store the objective functions per output layer.

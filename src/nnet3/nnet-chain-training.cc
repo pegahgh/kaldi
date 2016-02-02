@@ -25,10 +25,12 @@ namespace nnet3 {
 
 NnetChainTrainer::NnetChainTrainer(const NnetChainTrainingOptions &opts,
                                    const fst::StdVectorFst &den_fst,
-                                   Nnet *nnet):
+                                   Nnet *nnet,
+                                   const CuVector<BaseFloat> *output_weights):
     opts_(opts),
     den_graph_(den_fst, nnet->OutputDim("output")),
     nnet_(nnet),
+    output_weights_(output_weights),
     compiler_(*nnet, opts_.nnet_config.optimize_config),
     num_minibatches_processed_(0) {
   if (opts.nnet_config.zero_component_stats)
@@ -122,10 +124,21 @@ void NnetChainTrainer::ProcessOutputs(const NnetChainExample &eg,
     }
     BaseFloat tot_objf, tot_l2_term, tot_weight;
     ComputeChainObjfAndDeriv(opts_.chain_config, den_graph_,
-                             sup.supervision, nnet_output, xent_output,
-                             &tot_objf, &tot_l2_term, &tot_weight,
+                             sup.supervision, nnet_output, 
+                             &tot_objf, &tot_weight,
                              &nnet_output_deriv,
                              (use_xent ? &xent_deriv : NULL));
+
+    if (opts_.chain_config.l2_regularize != 0) {
+      BaseFloat l2_reg = opts_.chain_config.l2_regularize * 
+                         sup.supervision.weight;
+      //const CuVector<BaseFloat> &pdf_priors = nnet_->Priors();
+      chain::ComputeRegularizationTerm(nnet_output, xent_output,
+                                       output_weights_,
+                                       l2_reg, &tot_l2_term, 
+                                       &nnet_output_deriv,
+                                       (use_xent ? &xent_deriv : NULL));
+    }
 
     if (use_xent) {
       // at this point, xent_deriv is posteriors derived from the numerator
