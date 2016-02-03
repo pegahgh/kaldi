@@ -55,6 +55,9 @@ parser.add_argument("--recurrent-projection-learning-rate-factor", type=float,
                     default=10.0)
 parser.add_argument("--jesus-hidden-dim", type=int,
                     help="hidden dimension of Jesus layer.", default=10000)
+parser.add_argument("--l2reg-block-dim", type=int,
+                    help="dimension of block in affine transform for l2_regularizer",
+                    default=5)
 parser.add_argument("--jesus-forward-output-dim", type=int,
                     help="part of output dimension of Jesus layer that goes to next layer",
                     default=1000)
@@ -494,9 +497,11 @@ for l in range(1, num_hidden_layers + 1):
             # This block prints the configs for separate output with l2-norm objective, which models l2_regularization
             # term for output and it minimizes distance of chain output and linearly transformed cross-entropy output. 
             # It helps the chain output to be a linear function of cross entropy output. 
-            print('component name=final-affine-l2reg type=NaturalGradientAffineComponent '
-                  'input-dim={0} output-dim={1} param-stddev=0.0 bias-stddev=0 learning-rate-factor={2}'.format(
-                    args.num_targets, args.num_targets, args.l2_regularize), file=f)
+            print('component name=final-affine-l2reg type=BlockAffineComponent '
+                  'input-dim={0} output-dim={1} num-blocks={2} param-stddev={3} bias-stddev=0 learning-rate-factor={4}'.format(
+                  args.num_targets, args.num_targets, args.num_targets / args.l2reg_block_dim, 
+                  args.jesus_stddev_scale / math.sqrt((args.num_targets / args.l2reg_block_dim)),
+                  args.final_layer_learning_rate_factor), file=f)
             print('component-node name=final-affine-l2reg component=final-affine-l2reg input=final-log-softmax-xent', 
                 file=f)
             print('output-node name=output-l2reg input=final-affine-l2reg objective=quadratic', file=f)

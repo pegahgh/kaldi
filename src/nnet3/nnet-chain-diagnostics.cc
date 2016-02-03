@@ -133,7 +133,7 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
 
     ObjectiveType obj_type = nnet_.GetNode(node_index).u.objective_type;
     BaseFloat l2reg_coeff = sup.supervision.weight * chain_config_.l2_regularize;
-    bool supply_deriv = false; 
+    bool supply_deriv = nnet_config_.compute_deriv; 
     if (use_l2reg) {
       ComputeGeneralObjectiveFunction(sup.name, l2reg_name, obj_type, l2reg_coeff, supply_deriv,
                                       computer, &tot_weight, &tot_l2_term);
