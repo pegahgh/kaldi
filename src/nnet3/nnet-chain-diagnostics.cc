@@ -126,10 +126,14 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
                              &tot_like, &tot_weight,
                              (nnet_config_.compute_deriv ? &nnet_output_deriv :
                               NULL), (use_xent ? &xent_deriv : NULL));
+
+    KALDI_ASSERT(chain_config_.regularization_type == 0 ||
+                chain_config_.regularization_type == 1);
     if (chain_config_.l2_regularize != 0) {
       BaseFloat l2_reg = chain_config_.l2_regularize *
                          sup.supervision.weight;
-      chain::ComputeRegularizationTerm(nnet_output, xent_output,
+      chain::ComputeRegularizationTerm(nnet_output,
+                               (chain_config_.regularization_type == 0 ? NULL : xent_output),
                                output_weights_,
                                l2_reg, &tot_l2_term, 
                                (nnet_config_.compute_deriv ? &nnet_output_deriv :

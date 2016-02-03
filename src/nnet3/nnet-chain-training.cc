@@ -132,8 +132,12 @@ void NnetChainTrainer::ProcessOutputs(const NnetChainExample &eg,
     if (opts_.chain_config.l2_regularize != 0) {
       BaseFloat l2_reg = opts_.chain_config.l2_regularize * 
                          sup.supervision.weight;
-      //const CuVector<BaseFloat> &pdf_priors = nnet_->Priors();
-      chain::ComputeRegularizationTerm(nnet_output, xent_output,
+
+      KALDI_ASSERT(opts_.chain_config.regularization_type == 0 || 
+                  opts_.chain_config.regularization_type == 1);
+      chain::ComputeRegularizationTerm(nnet_output, 
+                                       (opts_.chain_config.regularization_type == 0 ? 
+                                       NULL : xent_output),
                                        output_weights_,
                                        l2_reg, &tot_l2_term, 
                                        &nnet_output_deriv,

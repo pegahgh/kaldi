@@ -101,6 +101,28 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
 
 }
 
+
+/**
+   This function computes offset and scale, where Y is regressed to
+   be linear function of X. Linear least square method is
+   used to compute scale and offset coefficients.
+
+   The objecitve is to minimize L w.r.t scale_i, offset_i, 
+   L = \sum_{j=1}^{n}(\sum_i (y_ji - target_ji)^2),
+   where the target_ji = scale_i * x_ji + offset_i.
+
+   scale_i = [\sum_j (x_ji * y_ji) - 
+             1/n * \sum_j(x_ji) * \sum_j(y_ji)] / 
+             [\sum_j(x_ji^2) - 1/n * (\sum_j(x_ji))^2]
+   offset_i = 1/n * \sum_j (y_ji - scale_i * x_ji)
+   where n is the number of exampls.
+
+   @param [in] x        The elements of x contains examples for independent variable X.
+   @param [in] y        The elements of y contains examples for dependent variable Y.
+
+   @param [out] scale   The scale parameter  
+   @param [out] offset  The offset parameter 
+ **/
 void LeastSquareRegression(const CuMatrixBase<BaseFloat> &x,
                            const CuMatrixBase<BaseFloat> &y,
                            CuVector<BaseFloat> *scale,
@@ -163,7 +185,7 @@ void ComputeRegularizationTerm(const CuMatrixBase<BaseFloat> &nnet_output,
     pos_weight.ApplyFloor(std::numeric_limits<BaseFloat>::min());
     output_diff.AddMatDiagVec(1.0, output_diff, kNoTrans, *weight, 1.0);
   }
-  if (xent_output_deriv) 
+  if (xent_output_deriv && xent_output) 
     xent_output_deriv->AddMatDiagVec(l2_regularize, weighted_output_diff, kNoTrans, scale, 1.0);
 
   //update the nnet_output and xent_output derivative w.r.t. regularizer term.

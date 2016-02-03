@@ -60,9 +60,15 @@ struct ChainTrainingOptions {
   // the network is expected to have an output named 'output-xent', which
   // should have a softmax as its final nonlinearity.
   BaseFloat xent_regularize;
+  
+  // This is a type of regularization used on output; 
+  // 0 : weighted l2_regularization of chain outputs using pdf-priors as weights.
+  // 1 : weighted l2_regularization term regress chain output to be linear 
+  //     function of cross-entropy. where weights is pdf-priors.
+  int32 regularization_type;
 
   ChainTrainingOptions(): l2_regularize(0.0), leaky_hmm_coefficient(1.0e-05),
-                          xent_regularize(0.0) { }
+                          xent_regularize(0.0), regularization_type(0) { }
   
   void Register(OptionsItf *opts) {
     opts->Register("l2-regularize", &l2_regularize, "l2 regularization "
@@ -78,6 +84,11 @@ struct ChainTrainingOptions {
                    "nonzero, the network is expected to have an output "
                    "named 'output-xent', which should have a softmax as "
                    "its final nonlinearity.");
+    opts->Register("regularization-type", &regularization_type, "Type of "
+                   "regularization used to penalize output; 0 is weighted " 
+                   "l2_regularization of chain outputs using pdf-priors as weights;"
+                   " 1 is weighted l2_regularization term regress chain output to be "
+                   "linear function of cross-entropy outputs.");
   }
 };
 
@@ -125,32 +136,6 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
                               CuMatrixBase<BaseFloat> *nnet_output_deriv,
                               CuMatrixBase<BaseFloat> *xent_output_deriv = NULL);
                               
-/**
-   This function computes offset and scale, where Y is regressed to
-   be linear function of X. Linear least square method is
-   used to compute scale and offset coefficients.
-
-   The objecitve is to minimize L w.r.t scale_i, offset_i, 
-   L = \sum_{j=1}^{n}(\sum_i (y_ji - target_ji)^2),
-   where the target_ji = scale_i * x_ji + offset_i.
-
-   scale_i = [\sum_j (x_ji * y_ji) - 
-             1/n * \sum_j(x_ji) * \sum_j(y_ji)] / 
-             [\sum_j(x_ji^2) - 1/n * (\sum_j(x_ji))^2]
-   offset_i = 1/n * \sum_j (y_ji - scale_i * x_ji)
-   where n is the number of exampls.
-
-   @param [in] x        The elements of x contains examples for independent variable X.
-   @param [in] y        The elements of y contains examples for dependent variable Y.
-
-   @param [out] scale   The scale parameter  
-   @param [out] offset  The offset parameter 
- **/
-void LeastSquareRegression(const CuMatrixBase<BaseFloat> &x,
-                           const CuMatrixBase<BaseFloat> &y,
-                           CuVector<BaseFloat> *scale,
-                           CuVector<BaseFloat> *offset); 
-
 /**
   This function computes weighted l2-regularization term and updates the 
   derivatives. The weighted l2-regularization is a weighted combination of output dims,

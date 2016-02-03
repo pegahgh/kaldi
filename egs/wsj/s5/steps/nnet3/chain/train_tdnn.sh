@@ -38,7 +38,10 @@ rand_prune=4.0 # Relates to a speedup we do for LDA.
 minibatch_size=512  # This default is suitable for GPU-based training.
                     # Set it to 128 for multi-threaded CPU-based training.
 lm_opts=   # options to chain-est-phone-lm
-l2_regularize=0.0
+l2_regularize=0.0 # 0 : weighted l2-regularization of chain outputs
+                  # 1 : wighted l2-regularization of chain output to be regressed to
+                  #     be linear function of cross-entropy output.
+regularization_type=0
 leaky_hmm_coefficient=0.00001
 xent_regularize=0.0
 frames_per_iter=800000  # each iteration of training, see this many [input]
@@ -465,11 +468,11 @@ while [ $x -lt $num_iters ]; do
     # Set off jobs doing some diagnostics, in the background.
     # Use the egs dir from the previous iteration for the diagnostics
     $cmd $dir/log/compute_prob_valid.$x.log \
-      nnet3-chain-compute-prob --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
+      nnet3-chain-compute-prob --l2-regularize=$l2_regularize --regularization-type=$regularization_type --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
           $l2reg_opts "$mdl" $dir/den.fst \
           "ark:nnet3-chain-merge-egs ark:$egs_dir/valid_diagnostic.cegs ark:- |" &
     $cmd $dir/log/compute_prob_train.$x.log \
-      nnet3-chain-compute-prob --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient  --xent-regularize=$xent_regularize \
+      nnet3-chain-compute-prob --l2-regularize=$l2_regularize --regularization-type=$regularization_type --leaky-hmm-coefficient=$leaky_hmm_coefficient  --xent-regularize=$xent_regularize \
           $l2reg_opts "$mdl" $dir/den.fst \
           "ark:nnet3-chain-merge-egs ark:$egs_dir/train_diagnostic.cegs ark:- |" &
 
@@ -529,7 +532,7 @@ while [ $x -lt $num_iters ]; do
 
         $cmd $train_queue_opt $dir/log/train.$x.$n.log \
           nnet3-chain-train --apply-deriv-weights=$apply_deriv_weights \
-             --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
+             --l2-regularize=$l2_regularize --regularization-type=$regularization_type --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
               $parallel_train_opts $deriv_time_opts \
              --max-param-change=$this_max_param_change \
             --print-interval=10 $l2reg_opts "$mdl" $dir/den.fst \
@@ -597,7 +600,7 @@ if [ $stage -le $num_iters ]; then
   # num-threads to 8 to speed it up (this isn't ideal...)
 
   $cmd $combine_queue_opt $dir/log/combine.log \
-    nnet3-chain-combine --num-iters=40  --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient \
+    nnet3-chain-combine --num-iters=40  --l2-regularize=$l2_regularize --regularization-type=$regularization_type --leaky-hmm-coefficient=$leaky_hmm_coefficient \
        --enforce-sum-to-one=true --enforce-positive-weights=true \
        --verbose=3 $dir/den.fst "${nnets_list[@]}" "ark:nnet3-chain-merge-egs --minibatch-size=$minibatch_size ark:$egs_dir/combine.cegs ark:-|" \
        "|nnet3-am-copy --set-raw-nnet=- $dir/$first_model_combine.mdl $dir/final.mdl" || exit 1;
@@ -607,11 +610,11 @@ if [ $stage -le $num_iters ]; then
   # the same subset we used for the previous compute_probs, as the
   # different subsets will lead to different probs.
   $cmd $dir/log/compute_prob_valid.final.log \
-    nnet3-chain-compute-prob --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
+    nnet3-chain-compute-prob --l2-regularize=$l2_regularize --regularization-type=$regularization_type --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
            "nnet3-am-copy --raw=true $dir/final.mdl - |" $dir/den.fst \
     "ark:nnet3-chain-merge-egs ark:$egs_dir/valid_diagnostic.cegs ark:- |" &
   $cmd $dir/log/compute_prob_train.final.log \
-    nnet3-chain-compute-prob --l2-regularize=$l2_regularize --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
+    nnet3-chain-compute-prob --l2-regularize=$l2_regularize --regularization-type=$regularization_type --leaky-hmm-coefficient=$leaky_hmm_coefficient --xent-regularize=$xent_regularize \
       "nnet3-am-copy --raw=true $dir/final.mdl - |" $dir/den.fst \
     "ark:nnet3-chain-merge-egs ark:$egs_dir/train_diagnostic.cegs ark:- |" &
 fi
