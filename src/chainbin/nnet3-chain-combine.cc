@@ -41,12 +41,14 @@ int main(int argc, char *argv[]) {
         " nnet3-combine den.fst 35.raw 36.raw 37.raw 38.raw ark:valid.cegs final.raw\n";
 
     bool binary_write = true;
-    std::string use_gpu = "yes";
+    std::string use_gpu = "yes",
+      prior_rspecifier;
     NnetCombineConfig combine_config;
     chain::ChainTrainingOptions chain_config;
 
     ParseOptions po(usage);
     po.Register("binary", &binary_write, "Write output in binary mode");
+    po.Register("prior", &prior_rspecifier, "The name of file contains pdf-priors."); 
     po.Register("use-gpu", &use_gpu,
                 "yes|no|optional|wait, only has effect if compiled with CUDA");
 
@@ -77,7 +79,14 @@ int main(int argc, char *argv[]) {
     Nnet nnet;
     ReadKaldiObject(raw_nnet_rxfilename, &nnet);
 
-
+    Vector<BaseFloat> prior_vec;
+    if (!prior_rspecifier.empty()) {
+      ReadKaldiObject(prior_rspecifier, &prior_vec); 
+      KALDI_ASSERT(prior_vec.Sum() > 0.0);
+      prior_vec.Scale(1.0 / prior_vec.Sum()); // renormalize priors
+    }
+    const CuVector<BaseFloat> *cu_prior_vec = new CuVector<BaseFloat>(prior_vec);
+ 
     std::vector<NnetChainExample> egs;
     egs.reserve(10000);  // reserve a lot of space to minimize the chance of
                          // reallocation.
@@ -94,7 +103,7 @@ int main(int argc, char *argv[]) {
 
     int32 num_nnets = po.NumArgs() - 3;
     NnetChainCombiner combiner(combine_config, chain_config,
-                               num_nnets, egs, den_fst, nnet);
+                               num_nnets, egs, den_fst, nnet, cu_prior_vec);
 
     for (int32 n = 1; n < num_nnets; n++) {
       std::string this_nnet_rxfilename = po.GetArg(n + 2);

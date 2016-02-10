@@ -66,8 +66,10 @@ int main(int argc, char *argv[]) {
 
     Nnet nnet;
     Vector<BaseFloat> prior_vec;
+    bool use_prior = false;
     ReadKaldiObject(nnet_rxfilename, &nnet);
     if (!prior_rspecifier.empty()) {
+      use_prior = true;
       ReadKaldiObject(prior_rspecifier, &prior_vec); 
       KALDI_ASSERT(prior_vec.Sum() > 0.0);
       prior_vec.Scale(1.0 / prior_vec.Sum()); // renormalize priors
@@ -78,7 +80,7 @@ int main(int argc, char *argv[]) {
     ReadFstKaldi(den_fst_rxfilename, &den_fst);
 
     NnetChainComputeProb chain_prob_computer(nnet_opts, chain_opts, den_fst,
-                                            nnet, cu_prior_vec);
+                                            nnet, (use_prior ? cu_prior_vec : NULL));
 
     SequentialNnetChainExampleReader example_reader(examples_rspecifier);
 

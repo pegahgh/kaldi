@@ -28,7 +28,8 @@ NnetChainCombiner::NnetChainCombiner(const NnetCombineConfig &combine_config,
                                      int32 num_nnets,
                                      const std::vector<NnetChainExample> &egs,
                                      const fst::StdVectorFst &den_fst,
-                                     const Nnet &first_nnet):
+                                     const Nnet &first_nnet,
+                                     const CuVector<BaseFloat> *output_weights):
     combine_config_(combine_config),
     chain_config_(chain_config),
     egs_(egs),
@@ -45,7 +46,7 @@ NnetChainCombiner::NnetChainCombiner(const NnetCombineConfig &combine_config,
   ComputeUpdatableComponentDims();
   NnetComputeProbOptions compute_prob_opts;
   compute_prob_opts.compute_deriv = true;
-  prob_computer_ = new NnetChainComputeProb(compute_prob_opts, chain_config_, den_fst_, nnet_);
+  prob_computer_ = new NnetChainComputeProb(compute_prob_opts, chain_config_, den_fst_, nnet_, output_weights);
 }
 
 void NnetChainCombiner::ComputeUpdatableComponentDims(){

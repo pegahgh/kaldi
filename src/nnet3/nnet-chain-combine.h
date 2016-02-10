@@ -50,7 +50,8 @@ class NnetChainCombiner {
                     int32 num_nnets,
                     const std::vector<NnetChainExample> &egs,
                     const fst::StdVectorFst &den_fst,
-                    const Nnet &first_nnet);
+                    const Nnet &first_nnet,
+                    const CuVector<BaseFloat> *output_weights = NULL);
 
   /// You should call this function num_nnets-1 times after calling
   /// the constructor, to provide the remaining nnets.
