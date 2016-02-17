@@ -39,11 +39,13 @@ namespace kaldi {
 struct XvectorPerturbOptions {
   BaseFloat max_shift; 
   BaseFloat max_time_stretch;
+  int32 frame_dim;
   bool negation; 
   bool rand_distort;
   std::string noise_egs;
   XvectorPerturbOptions(): max_shift(0.2),
                            max_time_stretch(0.2),
+                           frame_dim(80),
                            negation(false),
                            rand_distort(false) { }
   void Register(OptionsItf *opts) { 
@@ -51,6 +53,8 @@ struct XvectorPerturbOptions {
                 "to frame length applied to egs.");
     opts->Register("max-speed-perturb", &max_time_stretch,
                    "Max speed perturbation applied on egs.");
+    opts->Register("frame-dim", &frame_dim,
+                   "The numebr of samples in input frame as product of frame_length by samp_freq.");
     opts->Register("negation", &negation, "If true, the input value is negated randomly.");
     opts->Register("noise-egs", &noise_egs, "If supplied, the additive noise is added.");
     opts->Register("rand_distort", &rand_distort, "If true, the signal is slightly changes"
@@ -63,7 +67,7 @@ class PerturbXvectorSignal {
   PerturbXvectorSignal(XvectorPerturbOptions opts): opts_(opts) { };
 
   void ComputeAndApplyRandDistortion(const MatrixBase<BaseFloat> &input_egs,
-                                Matrix<BaseFloat> *perturb_egs);
+                                     Matrix<BaseFloat> *perturb_egs);
 
   void TimeStretch(const MatrixBase<BaseFloat> &input_egs,
                    Matrix<BaseFloat> *perturb_egs);
