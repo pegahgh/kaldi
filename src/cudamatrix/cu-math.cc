@@ -234,11 +234,11 @@ void ComputeXvectorObjfFromScores(const CuMatrixBase<BaseFloat> &scores,
       for (int32 j = 0; j < num_rows; j++) {
         BaseFloat L = scores(i, j);
         if (i + 1 == j && i % 2 == 0) {
-          (*objf_terms)(i, j) = L < -15 ? -L : log(1.0 + exp(-L));
-          (*objf_derivs)(i, j) = 1.0 / (1.0 + exp(L));
+          (*objf_terms)(i, j) = L < -15 ? L : -log(1.0 + exp(-L));
+          (*objf_derivs)(i, j) = -1.0 / (1.0 + exp(L));
         } else if (i < j) {
-          (*objf_terms)(i, j) = K * (L > 15 ? L : log(1.0 + exp(L)));
-          (*objf_derivs)(i, j) = -K / (1.0 + exp(-L));
+          (*objf_terms)(i, j) = K * (L > 15 ? -L : -log(1.0 + exp(L)));
+          (*objf_derivs)(i, j) = K / (1.0 + exp(-L));
         } else {
           (*objf_terms)(i, j) = 0;
           (*objf_derivs)(i, j) = 0;

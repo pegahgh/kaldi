@@ -17,7 +17,7 @@
 // See the Apache 2 License for the specific language governing permissions and
 // limitations under the License.
 
-#include "ivector/xvector.h"
+#include "xvector/xvector.h"
 #include "util/kaldi-io.h"
 #include "cudamatrix/cu-matrix-lib.h"
 
@@ -228,7 +228,7 @@ void TestComputeXvectorObjfAndDeriv(
   }
   // Scale the same and different portions of the objective function
   // so that both contribute a weight of N.
-  (*tot_objf) = same_objf + K * diff_objf;
+  (*tot_objf) = -same_objf - K * diff_objf;
   (*tot_weight) = N;
 }
 
@@ -245,7 +245,7 @@ void TestGetDeriv(const CuVector<BaseFloat> &v,
   deriv_S->Resize(S_dim, kSetZero);
 
   // This scalar is common to the different derivatives.
-  BaseFloat deriv_coef = d * Exp(-1 * d * similarity_score)
+  BaseFloat deriv_coef = -d * Exp(-1 * d * similarity_score)
     / (1 + Exp(-1 * d * similarity_score));
 
   // Handle derivative with respect to v and w.

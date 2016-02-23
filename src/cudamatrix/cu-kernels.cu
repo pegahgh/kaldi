@@ -2109,11 +2109,11 @@ static void _compute_xvector_objf(const Real* scores, MatrixDim scores_dim,
   Real L = scores[scores_index];
   if (i < scores_dim.cols && j < scores_dim.rows) {
     if (i + 1 == j && i % 2 == 0) {
-      objf_terms[objf_index] = L < -15 ? -L : log(1.0 + exp(-L));
-      objf_derivs[derivs_index] = 1.0 / (1.0 + exp(L));
+      objf_terms[objf_index] = L < -15 ? L : -log(1.0 + exp(-L));
+      objf_derivs[derivs_index] = -1.0 / (1.0 + exp(L));
     } else if (i < j) {
-      objf_terms[objf_index] = K * (L > 15 ? L : log(1.0 + exp(L)));
-      objf_derivs[derivs_index] = -K / (1.0 + exp(-L));
+      objf_terms[objf_index] = K * (L > 15 ? -L : -log(1.0 + exp(L)));
+      objf_derivs[derivs_index] = K / (1.0 + exp(-L));
     } else {
       objf_terms[objf_index] = 0.0;
       objf_derivs[derivs_index] = 0.0;
