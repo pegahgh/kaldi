@@ -24,28 +24,29 @@
 namespace kaldi {
 namespace nnet3 {
 
-NnetXvectorTrainer::NnetXvectorTrainer(const NnetTrainerOptions &config,
+NnetXvectorTrainer::NnetXvectorTrainer(const NnetXvectorTrainerOptions &config,
                          Nnet *nnet):
     config_(config),
     nnet_(nnet),
-    compiler_(*nnet, config_.optimize_config),
+    compiler_(*nnet, config_.nnet_trainer_config.optimize_config),
     num_minibatches_processed_(0) {
-  if (config.zero_component_stats)
+  if (config_.nnet_trainer_config.zero_component_stats)
     ZeroComponentStats(nnet);
-  if (config.momentum == 0.0 && config.max_param_change == 0.0) {
+  if (config_.nnet_trainer_config.momentum == 0.0 && 
+      config_.nnet_trainer_config.max_param_change == 0.0) {
     delta_nnet_= NULL;
   } else {
-    KALDI_ASSERT(config.momentum >= 0.0 &&
-                 config.max_param_change >= 0.0);
+    KALDI_ASSERT(config_.nnet_trainer_config.momentum >= 0.0 &&
+                 config_.nnet_trainer_config.max_param_change >= 0.0);
     delta_nnet_ = nnet_->Copy();
     bool is_gradient = false;  // setting this to true would disable the
                                // natural-gradient updates.
     SetZero(is_gradient, delta_nnet_);
   }
-  if (config_.read_cache != "") {
+  if (config_.nnet_trainer_config.read_cache != "") {
     bool binary;
     try {
-      Input ki(config_.read_cache, &binary);
+      Input ki(config_.nnet_trainer_config.read_cache, &binary);
       compiler_.ReadCache(ki.Stream(), binary);
     } catch (...) {
       KALDI_WARN << "Could not open cached computation. "
@@ -59,11 +60,11 @@ void NnetXvectorTrainer::Train(const NnetExample &eg) {
   bool need_model_derivative = true;
   ComputationRequest request;
   GetComputationRequestXvector(*nnet_, eg, need_model_derivative,
-                               config_.store_component_stats,
+                               config_.nnet_trainer_config.store_component_stats,
                                &request);
   const NnetComputation *computation = compiler_.Compile(request);
 
-  NnetComputer computer(config_.compute_config, *computation,
+  NnetComputer computer(config_.nnet_trainer_config.compute_config, *computation,
                         *nnet_,
                         (delta_nnet_ == NULL ? nnet_ : delta_nnet_));
   // give the inputs to the computer object.
@@ -74,28 +75,29 @@ void NnetXvectorTrainer::Train(const NnetExample &eg) {
   computer.Backward();
 
   if (delta_nnet_ != NULL) {
-    BaseFloat scale = (1.0 - config_.momentum);
-    if (config_.max_param_change != 0.0) {
+    BaseFloat scale = (1.0 - config_.nnet_trainer_config.momentum);
+    if (config_.nnet_trainer_config.max_param_change != 0.0) {
       BaseFloat param_delta =
           std::sqrt(DotProduct(*delta_nnet_, *delta_nnet_)) * scale;
-      if (param_delta > config_.max_param_change) {
+      if (param_delta > config_.nnet_trainer_config.max_param_change) {
         if (param_delta - param_delta != 0.0) {
           KALDI_WARN << "Infinite parameter change, will not apply.";
           SetZero(false, delta_nnet_);
         } else {
-          scale *= config_.max_param_change / param_delta;
+          scale *= config_.nnet_trainer_config.max_param_change / param_delta;
           KALDI_LOG << "Parameter change too big: " << param_delta << " > "
-                    << "--max-param-change=" << config_.max_param_change
-                    << ", scaling by " << config_.max_param_change / param_delta;
+                    << "--max-param-change=" << config_.nnet_trainer_config.max_param_change
+                    << ", scaling by " << config_.nnet_trainer_config.max_param_change / param_delta;
         }
       }
     }
     AddNnet(*delta_nnet_, scale, nnet_);
-    ScaleNnet(config_.momentum, delta_nnet_);
+    ScaleNnet(config_.nnet_trainer_config.momentum, delta_nnet_);
   }
-  if (config_.write_cache != "") {
-    Output ko(config_.write_cache, config_.binary_write_cache);
-    compiler_.WriteCache(ko.Stream(), config_.binary_write_cache);
+  if (config_.nnet_trainer_config.write_cache != "") {
+    Output ko(config_.nnet_trainer_config.write_cache, 
+      config_.nnet_trainer_config.binary_write_cache);
+    compiler_.WriteCache(ko.Stream(), config_.nnet_trainer_config.binary_write_cache);
   }
 }
 
@@ -131,7 +133,7 @@ void NnetXvectorTrainer::ProcessOutputs(NnetComputer *computer) {
                                    (supply_deriv ? &deriv_s : NULL),
                                    (supply_deriv ? &deriv_b : NULL),
                                    &tot_objf,
-                                   &tot_weight);
+                                   &tot_weight, config_.diss_scale);
 
         if (supply_deriv) {
           CuMatrix<BaseFloat> deriv_s_mat(1, s_dim),
@@ -143,7 +145,8 @@ void NnetXvectorTrainer::ProcessOutputs(NnetComputer *computer) {
           computer->AcceptOutputDeriv(b_name, &deriv_b_mat);
         }
 
-        objf_info_[xvector_name].UpdateStats(xvector_name, config_.print_interval,
+        objf_info_[xvector_name].UpdateStats(xvector_name, 
+                                             config_.nnet_trainer_config.print_interval,
                                              num_minibatches_processed_++,
                                              tot_weight, tot_objf);
       }
@@ -263,7 +266,7 @@ void GetComputationRequestXvector(const Nnet &nnet,
     IoSpecification &io_spec = dest.back();
     io_spec.name = name;
     io_spec.indexes = io.indexes;
-    io_spec.has_deriv = nnet.IsOutputNode(node_index) && need_model_derivative;
+    io_spec.has_deriv = false; 
   }
 
   // We only need the output on frame t=0 for each n.
@@ -277,7 +280,7 @@ void GetComputationRequestXvector(const Nnet &nnet,
 
   for (int32 indx = 0; indx < io_index_size; indx++)
     if (request->inputs[0].indexes[indx].t == 0)
-     n_indx_size++;
+      n_indx_size++;
 
   output_indexes.resize(n_indx_size);
   for (int32 indx = 0; indx < n_indx_size; indx++) {

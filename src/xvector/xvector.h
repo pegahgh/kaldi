@@ -70,7 +70,8 @@ namespace kaldi {
     CuVector<BaseFloat> *deriv_S,
     BaseFloat *deriv_b,
     BaseFloat *tot_objf,
-    BaseFloat *tot_weight);
+    BaseFloat *tot_weight,
+    BaseFloat scale = 1.0);
 }  // namespace kaldi
 
 #endif

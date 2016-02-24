@@ -27,7 +27,8 @@ void ComputeXvectorObjfAndDeriv(
     BaseFloat b, CuMatrixBase<BaseFloat> *deriv_xvector,
     CuVector<BaseFloat> *deriv_S, BaseFloat *deriv_b,
     BaseFloat *tot_objf,
-    BaseFloat *tot_weight) {
+    BaseFloat *tot_weight,
+    BaseFloat scale) {
 
   int32 S_dim = S.NumCols() * (S.NumCols() + 1) / 2,
         N = xvector_pairs.NumRows(),
@@ -62,7 +63,7 @@ void ComputeXvectorObjfAndDeriv(
   scores.AddMat(-1.0, R, kNoTrans);
   scores.Add(b);
 
-  cu::ComputeXvectorObjfFromScores(scores, &objf_terms, &objf_deriv_terms);
+  cu::ComputeXvectorObjfFromScores(scores, &objf_terms, &objf_deriv_terms, scale);
   CuVector<BaseFloat> objf_terms_vec(N);
   objf_terms_vec.AddRowSumMat(1.0, objf_terms);
   (*tot_objf) = objf_terms_vec.Sum();

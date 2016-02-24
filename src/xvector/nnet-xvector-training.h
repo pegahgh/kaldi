@@ -32,6 +32,19 @@
 namespace kaldi {
 namespace nnet3 {
 
+struct NnetXvectorTrainerOptions {
+  BaseFloat diss_scale;
+  NnetTrainerOptions nnet_trainer_config;
+  NnetXvectorTrainerOptions(): 
+    diss_scale(1.0) { }
+  void Register(OptionsItf *opts) {
+    opts->Register("diss-scale", &diss_scale,
+                   "The dissimalirty portion in xvector objective is scaled"
+                   " using dis_scale.");
+    // register the NnetTrainer options
+    nnet_trainer_config.Register(opts);
+  }
+};
 
 /** This class is for single-threaded training of neural nets using
     standard objective functions such as cross-entropy (implemented with
@@ -47,7 +60,7 @@ namespace nnet3 {
  */
 class NnetXvectorTrainer {
  public:
-  NnetXvectorTrainer(const NnetTrainerOptions &config,
+  NnetXvectorTrainer(const NnetXvectorTrainerOptions &config,
               Nnet *nnet);
 
   // train on one minibatch.
@@ -60,7 +73,7 @@ class NnetXvectorTrainer {
  private:
   void ProcessOutputs(NnetComputer *computer);
 
-  const NnetTrainerOptions config_;
+  const NnetXvectorTrainerOptions config_;
   Nnet *nnet_;
   Nnet *delta_nnet_;  // Only used if momentum != 0.0.  nnet representing
                       // accumulated parameter-change (we'd call this

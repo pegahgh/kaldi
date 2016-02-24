@@ -104,7 +104,7 @@ void NnetXvectorComputeProb::ProcessOutputs(NnetComputer *computer) {
                                    (supply_deriv ? &deriv_s : NULL),
                                    (supply_deriv ? &deriv_b : NULL),
                                    &tot_objf,
-                                   &tot_weight);
+                                   &tot_weight, 1.0);
         if (supply_deriv) {
           CuMatrix<BaseFloat> deriv_s_mat(1, s_dim),
             deriv_b_mat(1,1);
@@ -118,8 +118,9 @@ void NnetXvectorComputeProb::ProcessOutputs(NnetComputer *computer) {
         SimpleObjectiveInfo &totals = objf_info_[xvector_name];
         totals.tot_weight += tot_weight;
         totals.tot_objective += tot_objf;
+
+        num_minibatches_processed_++;
       }
-      num_minibatches_processed_++;
     }
   }
 }
