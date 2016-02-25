@@ -47,9 +47,10 @@ int main(int argc, char *argv[]) {
 
     NnetComputeProbOptions nnet_opts;
     chain::ChainTrainingOptions chain_opts;
-
+    BaseFloat prior_weight = 1.0;
     ParseOptions po(usage);
     po.Register("prior", &prior_rspecifier, "The name of file contains pdf-priors.");
+    po.Register("prior-weight", &prior_weight, "The weight used as power on priors.");
     nnet_opts.Register(&po);
     chain_opts.Register(&po);
 
@@ -73,6 +74,8 @@ int main(int argc, char *argv[]) {
       ReadKaldiObject(prior_rspecifier, &prior_vec); 
       KALDI_ASSERT(prior_vec.Sum() > 0.0);
       prior_vec.Scale(1.0 / prior_vec.Sum()); // renormalize priors
+      if (prior_weight != 1.0)
+        prior_vec.ApplyPowAbs(prior_weight);
     }
     const CuVector<BaseFloat> *cu_prior_vec = new CuVector<BaseFloat>(prior_vec);
 

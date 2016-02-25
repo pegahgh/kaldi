@@ -45,12 +45,13 @@ int main(int argc, char *argv[]) {
       prior_rspecifier;
     NnetCombineConfig combine_config;
     chain::ChainTrainingOptions chain_config;
-
+    BaseFloat prior_weight = 1.0;
     ParseOptions po(usage);
     po.Register("binary", &binary_write, "Write output in binary mode");
     po.Register("prior", &prior_rspecifier, "The name of file contains pdf-priors."); 
     po.Register("use-gpu", &use_gpu,
                 "yes|no|optional|wait, only has effect if compiled with CUDA");
+    po.Register("prior-weight", &prior_weight, "The weight used as power on priors.");
 
     combine_config.Register(&po);
     chain_config.Register(&po);
@@ -84,6 +85,8 @@ int main(int argc, char *argv[]) {
       ReadKaldiObject(prior_rspecifier, &prior_vec); 
       KALDI_ASSERT(prior_vec.Sum() > 0.0);
       prior_vec.Scale(1.0 / prior_vec.Sum()); // renormalize priors
+      if (prior_weight != 1.0) 
+        prior_vec.ApplyPowAbs(prior_weight);
     }
     const CuVector<BaseFloat> *cu_prior_vec = new CuVector<BaseFloat>(prior_vec);
  

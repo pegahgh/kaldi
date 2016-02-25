@@ -22,6 +22,7 @@ truncate_deriv_weights=0  # can be used to set to zero the weights of derivs fro
                           # near the edges.  (counts subsampled frames).
 
 use_weighted_reg=false
+prior_weight=1.0
 apply_deriv_weights=true
 initial_effective_lrate=0.0002
 final_effective_lrate=0.00002
@@ -462,7 +463,7 @@ while [ $x -lt $num_iters ]; do
 
   if [ $x -ge 0 ] && [ $stage -le $x ]; then
     if $use_weighted_reg; then
-      l2reg_opts="--prior=$dir/pdf_counts"
+      l2reg_opts="--prior=$dir/pdf_counts --prior-weight=$prior_weight"
     fi
     mdl="nnet3-am-copy --raw=true $dir/$x.mdl -|"
     # Set off jobs doing some diagnostics, in the background.
