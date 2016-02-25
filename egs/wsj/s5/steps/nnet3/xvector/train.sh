@@ -8,7 +8,7 @@
 cmd=run.pl
 num_epochs=4      # Number of epochs of training;
                   # the number of iterations is worked out from this.
-diss_scale=1.0    # scale value used to scale the dissimalarity part in objective function.
+diss_penalty=1.0    # scale value used to scale the dissimalarity part in objective function.
 num_shifts=3
 initial_effective_lrate=0.003
 final_effective_lrate=0.0003
@@ -175,7 +175,7 @@ while [ $x -lt $num_iters ]; do
 
         $cmd $train_queue_opt $dir/log/train.$x.$n.log \
           nnet3-xvector-train $parallel_train_opts --print-interval=10 \
-          --max-param-change=$max_param_change --diss-scale=$diss_scale "$raw" \
+          --max-param-change=$max_param_change --diss-penalty=$diss_penalty "$raw" \
           "ark:nnet3-copy-egs ark:$egs_dir/egs.$archive.ark ark:- | nnet3-shuffle-egs --buffer-size=$shuffle_buffer_size --srand=$x ark:- ark:-| nnet3-merge-egs --measure-output-frames=false --minibatch-size=$minibatch_size --discard-partial-minibatches=true ark:- ark:- |" \
           $dir/$[$x+1].$n.raw || touch $dir/.error &
       done
