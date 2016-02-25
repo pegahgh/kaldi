@@ -2099,13 +2099,14 @@ template<typename Real>
 __global__
 static void _compute_xvector_objf(const Real* scores, MatrixDim scores_dim,
                                   Real* objf_terms, MatrixDim objf_dim, 
-                                  Real* objf_derivs, MatrixDim derivs_dim) {
+                                  Real* objf_derivs, MatrixDim derivs_dim,
+                                  Real scale) {
   int32_cuda i = blockIdx.x * blockDim.x + threadIdx.x;
   int32_cuda j = blockIdx.y * blockDim.y + threadIdx.y;
   int32_cuda scores_index = i + j * scores_dim.stride;
   int32_cuda objf_index = i + j * objf_dim.stride;
   int32_cuda derivs_index = i + j * derivs_dim.stride;
-  Real K = 1.0 / (scores_dim.rows - 2.0);
+  Real K = scale / (scores_dim.rows - 2.0);
   Real L = scores[scores_index];
   if (i < scores_dim.cols && j < scores_dim.rows) {
     if (i + 1 == j && i % 2 == 0) {
@@ -2604,9 +2605,10 @@ void cudaF_equal_element_mask(dim3 Gr, dim3 Bl, const float *mat1,
 void cudaF_compute_xvector_objf(dim3 Gr, dim3 Bl, const float *scores, 
                                 MatrixDim scores_dim, float *objf_terms, 
                                 MatrixDim objf_dim, float *objf_derivs, 
-                                MatrixDim derivs_dim) {
+                                MatrixDim derivs_dim,
+                                float scale) {
   _compute_xvector_objf<<<Gr,Bl>>>(scores, scores_dim, objf_terms, objf_dim,
-    objf_derivs, derivs_dim);
+    objf_derivs, derivs_dim, scale);
 }
 
 /*
@@ -3066,9 +3068,10 @@ void cudaD_equal_element_mask(dim3 Gr, dim3 Bl, const double *mat1,
 void cudaD_compute_xvector_objf(dim3 Gr, dim3 Bl, const double *scores, 
                                 MatrixDim scores_dim, double *objf_terms, 
                                 MatrixDim objf_dim, double *objf_derivs, 
-                                MatrixDim derivs_dim) {
+                                MatrixDim derivs_dim,
+                                double scale) {
   _compute_xvector_objf<<<Gr,Bl>>>(scores, scores_dim, objf_terms, objf_dim,
-    objf_derivs, derivs_dim);
+    objf_derivs, derivs_dim, scale);
 }
 
 

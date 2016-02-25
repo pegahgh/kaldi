@@ -208,7 +208,8 @@ void Copy(const CuMatrixBase<Real> &src, const CuArray<int32> &copy_from_indices
 
 void ComputeXvectorObjfFromScores(const CuMatrixBase<BaseFloat> &scores,
                                   CuMatrixBase<BaseFloat> *objf_terms,
-                                  CuMatrixBase<BaseFloat> *objf_derivs) {
+                                  CuMatrixBase<BaseFloat> *objf_derivs,
+                                  BaseFloat penalty) {
   KALDI_ASSERT(SameDim(*objf_terms, *objf_derivs)
                && SameDim(*objf_terms, scores));
   #if HAVE_CUDA == 1
@@ -220,7 +221,7 @@ void ComputeXvectorObjfFromScores(const CuMatrixBase<BaseFloat> &scores,
 
     cuda_compute_xvector_objf(dimGrid, dimBlock, scores.Data(), scores.Dim(),
       objf_terms->Data(), objf_terms->Dim(), objf_derivs->Data(),
-      objf_derivs->Dim());
+      objf_derivs->Dim(),penalty);
     CU_SAFE_CALL(cudaGetLastError());
 
     CuDevice::Instantiate().AccuProfile(__func__, tim.Elapsed());
@@ -237,8 +238,8 @@ void ComputeXvectorObjfFromScores(const CuMatrixBase<BaseFloat> &scores,
           (*objf_terms)(i, j) = L < -15 ? L : -log(1.0 + exp(-L));
           (*objf_derivs)(i, j) = -1.0 / (1.0 + exp(L));
         } else if (i < j) {
-          (*objf_terms)(i, j) = K * (L > 15 ? -L : -log(1.0 + exp(L)));
-          (*objf_derivs)(i, j) = K / (1.0 + exp(-L));
+          (*objf_terms)(i, j) = penalty * K * (L > 15 ? -L : -log(1.0 + exp(L)));
+          (*objf_derivs)(i, j) = penalty * K / (1.0 + exp(-L));
         } else {
           (*objf_terms)(i, j) = 0;
           (*objf_derivs)(i, j) = 0;

@@ -183,7 +183,8 @@ void cudaF_equal_element_mask(dim3 Gr, dim3 Bl, const float *mat1,
 void cudaF_compute_xvector_objf(dim3 Gr, dim3 Bl, const float *scores,
                                MatrixDim scores_dim, float *obfj_terms,
                                MatrixDim objf_dim, float *objf_derivs,
-                               MatrixDim derivs_dim);
+                               MatrixDim derivs_dim,
+                               float scale);
 
 /*********************************************************
  * double CUDA kernel calls
@@ -311,7 +312,8 @@ void cudaD_take_mean(dim3 Gr, dim3 Bl, const double* x, double* y, MatrixDim d_i
 void cudaD_compute_xvector_objf(dim3 Gr, dim3 Bl, const double *scores,
                                MatrixDim scores_dim, double *obfj_terms,
                                MatrixDim objf_dim, double *objf_derivs,
-                               MatrixDim derivs_dim);
+                               MatrixDim derivs_dim,
+                               double scale);
 
 
 // some mostly mixed-type kernels.

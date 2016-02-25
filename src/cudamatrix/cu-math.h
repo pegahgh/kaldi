@@ -107,7 +107,8 @@ void Group2norm(const CuMatrixBase<Real> &src,
 */
 void ComputeXvectorObjfFromScores(const CuMatrixBase<BaseFloat> &scores,
                                   CuMatrixBase<BaseFloat> *objf_terms,
-                                  CuMatrixBase<BaseFloat> *objf_derivs);
+                                  CuMatrixBase<BaseFloat> *objf_derivs,
+                                  BaseFloat diss_penalty = 1.0);
 
 
 } // namespace cu

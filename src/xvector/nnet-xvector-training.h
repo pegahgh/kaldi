@@ -33,12 +33,12 @@ namespace kaldi {
 namespace nnet3 {
 
 struct NnetXvectorTrainerOptions {
-  BaseFloat diss_scale;
+  BaseFloat diss_penalty;
   NnetTrainerOptions nnet_trainer_config;
   NnetXvectorTrainerOptions(): 
-    diss_scale(1.0) { }
+    diss_penalty(1.0) { }
   void Register(OptionsItf *opts) {
-    opts->Register("diss-scale", &diss_scale,
+    opts->Register("diss-penalty", &diss_penalty,
                    "The dissimalirty portion in xvector objective is scaled"
                    " using dis_scale.");
     // register the NnetTrainer options
