@@ -82,8 +82,10 @@ enum ComponentProperties {
                              // Tanh, Sigmoid, ReLU and Softmax).
   kInputContiguous = 0x1000,  // true if the component requires its input data (and
                               // input derivatives) to have Stride()== NumCols().
-  kOutputContiguous = 0x2000  // true if the component requires its input data (and
-                              // output derivatives) to have Stride()== NumCols().
+  kOutputContiguous = 0x2000,  // true if the component requires its input data (and
+                               // output derivatives) to have Stride()== NumCols().
+  kInputPositive = 0x4000 // true if the component requires that the input is
+                          // positive.
 };
 
 

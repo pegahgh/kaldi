@@ -225,11 +225,10 @@ fi
 if [ $stage -le 4 ]; then
   echo "$0: Generating training examples on disk"
   rm $dir/.error 2>/dev/null
-  #if [ 0 = 1 ]; then
   for g in $(seq $nj); do
     outputs=`awk '{for(i=1;i<=NF;i++)printf("ark:%s ",$i);}' $temp/outputs.$g`
     $cmd $dir/log/train_create_examples.$g.log \
-      nnet3-xvector-get-egs2 $temp/ranges.$g \
+      nnet3-xvector-get-egs-sre $temp/ranges.$g \
       "`echo $feats | sed s/JOB/$g/g`" $outputs || touch $dir/.error &
   done
   #fi
@@ -237,13 +236,13 @@ if [ $stage -le 4 ]; then
   train_subset_outputs=`awk '{for(i=1;i<=NF;i++)printf("ark:%s ",$i);}' $temp/train_subset_outputs.1`
   echo "$0: Generating training subset examples on disk"
   $cmd $dir/log/train_subset_create_examples.1.log \
-    nnet3-xvector-get-egs2 $temp/train_subset_ranges.1 \
+    nnet3-xvector-get-egs-sre $temp/train_subset_ranges.1 \
     "$train_subset_feats" $train_subset_outputs || touch $dir/.error &
 
   valid_outputs=`awk '{for(i=1;i<=NF;i++)printf("ark:%s ",$i);}' $temp/valid_outputs.1`
   echo "$0: Generating validation examples on disk"
   $cmd $dir/log/valid_create_examples.1.log \
-    nnet3-xvector-get-egs2 $temp/valid_ranges.1 \
+    nnet3-xvector-get-egs-sre $temp/valid_ranges.1 \
     "$valid_feats" $valid_outputs || touch $dir/.error &
 
   wait
