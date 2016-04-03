@@ -4752,6 +4752,8 @@ void XvectorComponent::Read(std::istream &is, bool binary) {
   D_.Read(is, binary);
   ExpectToken(is, binary, "<s>");
   s_.Read(is, binary);
+  input_dim_ = D_.NumCols();
+  output_dim_ = D_.NumRows();
   ExpectToken(is, binary, "</XvectorComponent>");
 }
 
