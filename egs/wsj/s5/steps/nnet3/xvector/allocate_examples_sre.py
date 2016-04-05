@@ -270,7 +270,7 @@ def DeterministicChunkLength(archive_id):
   else:
     return int(math.pow(float(args.max_frames_per_chunk) /
                      args.min_frames_per_chunk, float(archive_id) /
-                     (args.num_archives/2-1)) * args.min_frames_per_chunk + 0.5)
+                     (args.num_archives-1)) * args.min_frames_per_chunk + 0.5)
 
 
 # given an utterance length utt_length (in frames) and two desired chunk lengths
@@ -313,7 +313,7 @@ for archive_index in range(args.num_archives):
         length1 = RandomChunkLength();
         length2 = RandomChunkLength();
     else:
-        length1 = DeterministicChunkLength(archive_index / 2);
+        length1 = DeterministicChunkLength(archive_index);
         length2 = length1
     print("{0} {1} {2}".format(archive_index + 1, length1, length2), file=info_f)
     archive_chunk_lengths.append( (length1, length2) )
