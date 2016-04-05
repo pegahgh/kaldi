@@ -117,7 +117,7 @@ echo $spk_prefix | perl -e '
   }
 
   foreach $reco (sort keys %recolist) {
-    print WO "$prefix$reco $reco2pipe{$reco} apply-filter --inverse=false \"ark:echo $reco2spk{$reco} $reco2filt{$reco} | \" - - | apply-filter --inverse=true \"ark:echo $reco2perturbspk{$reco} $reco2perturbfilt{$reco} | \" - - |\n";
+    print WO "$prefix$reco $reco2pipe{$reco} apply-filter --inverse=false \"scp:echo $reco2spk{$reco} $reco2filt{$reco} |\" - - | apply-filter --inverse=true \"scp:echo $reco2perturbspk{$reco} $reco2perturbfilt{$reco} |\" - - |\n";
   }
 
 ' $srcdir/utt2spk $srcdir/segments $srcdir/wav.scp \

@@ -23,6 +23,26 @@
 #include "feat/signal.h"
 
 namespace kaldi {
+void ApplyFilter(const Vector<BaseFloat> &input,
+                 const Vector<BaseFloat> &filter,
+                 Vector<BaseFloat> *filtered_input) {
+  int32 min_size = 0, 
+    size = input.Dim(), f_order = filter.Dim();
+  filtered_input->Resize(size);
+  // compute filtered input as y_j = sum_{i=1}^n x_(j-i) * a_i
+  // where input is y and filtered version is xi.
+  // sp x_j = 1/a_0 * (y_j - sum_{i=1}^p a_i * x(j-i))
+  (*filtered_input)(0) = input(0);
+  for (int32 i = 0; i < size; i++) {
+    min_size = std::min(f_order, i);
+    BaseFloat sum = 0;
+    for (int32 j = 1; j < min_size; j++) 
+      sum += filter(j) * (*filtered_input)(i-j);
+    KALDI_ASSERT(filter(0) != 0);
+    (*filtered_input)(i) = (input(i) - sum) / filter(0);
+  }
+}
+
 }
 
 int main(int argc, char *argv[]) {
@@ -76,6 +96,10 @@ int main(int argc, char *argv[]) {
     // convolving input with this filter is like whitening transform.
     // y'[n] = y[n] - sum_{i=1}^p {input_wav[n-i] * lpc_coeffs[i]} 
     //   = conv(y, [1 :-lpc-coeffs])
+    Vector<BaseFloat> orig_wav(filtered_wav);
+    //if (inverse)
+    //  ApplyFilter(orig_wav, lpc_filter, &filtered_wav);
+    //else
     FFTbasedBlockConvolveSignals(lpc_filter, &filtered_wav, inverse);
     Matrix<BaseFloat> filtered_wav_mat(1, filtered_wav.Dim());
     filtered_wav_mat.CopyRowsFromVec(filtered_wav);
