@@ -539,7 +539,7 @@ void GetConstantOutput(const Nnet &nnet_const, const std::string &output_name,
   // directly.  Instead, we can create some fake input,
   // propagate it through the network, and read out the
   // output.
-  CuMatrix<BaseFloat> cu_feats(left_context + right_context,
+  CuMatrix<BaseFloat> cu_feats(left_context + right_context + 1,
       nnet.InputDim(input_name));
   Matrix<BaseFloat> feats(cu_feats);
 
