@@ -92,10 +92,8 @@ if [ ! -f $data/feats.scp ]; then
   exit 1
 fi
 
-if [ ! -f $data/utt2dur ]; then
-  # getting this utt2dur will normally be more lightweight than
-  # getting the exact utterance-to-length map.
-  utils/data/get_utt2dur.sh $data || exit 1;
+if [ ! -f $data/utt2len ]; then
+  feat-to-len scp:$data/feats.scp ark,t:$data/utt2len || exit 1;
 fi
 
 frame_shift=$(utils/data/get_frame_shift.sh $data) || exit 1;
