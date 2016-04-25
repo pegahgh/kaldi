@@ -13,31 +13,28 @@ import traceback
 import shutil
 import math
 
-# This is the option for an implementation of L-BFGS.  
-def LbfgsOptions(lbfgs_config_str):
-    parser = argparse.ArgumentParser(description"""
-      These are the options for L-BFGS implementation.
-      It pushes responsibility for determining when to stop, onto the user.
-      This does not implement constrained L-BFGS, but it will
-      handle constrained problems correctly as long as the function approaches
-      +infinity (or -infinity for maximization problems) when it gets close to the
-      bound of the constraint.  In these types of problems, you just let the
-      function value be +infinity for minimization problems, or -infinity for
-      maximization problems, outside these bounds).""",
-      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--stored-vecs-num", type=int, dafualt=10,
-                        help="The number of stored vectors L-BFGS keeps.")
-    parser.add_argument("--minimize", type=str, default = "true", choices = ["true", "false"], 
-                        help="If true, we are minimizing, else maximizing.")
-    parser.add_argument("--first-step-learning-rate", type=float, 
-                        help="The very first step of L-BFGS is like gradient descent."
-                        "If you want to configure the size of that step,"
-                        "you can do it using this variable.", default = 1.0)
-    # TODO  add other necessary configs
-
-    lbfgs_args.append(parser.parse_args(shlex.split(lbfgs_config_str))
-
-    return lbfgs_args
+# This is the option for an implementation of L-BFGS. 
+# These are the options for L-BFGS implementation.
+# It pushes responsibility for determining when to stop, onto the user.
+# This does not implement constrained L-BFGS, but it will
+# handle constrained problems correctly as long as the function approaches
+# +infinity (or -infinity for maximization problems) when it gets close to the
+# bound of the constraint.  In these types of problems, you just let the
+# function value be +infinity for minimization problems, or -infinity for
+# maximization problems, outside these bounds).""",
+def LbfgsOptions(minimize):
+  # TOD add desrciption for each paramters.
+  lbfgs_opts.m = 10
+  lbfgs_opts.minimize = minimize
+  lbfgs_opts.first_step_learning_rate = 1.0
+  lbfgs_opts.first_step_length = 0.0
+  lbfgs_opts.first_step_impr = 0.0
+  lbfgs_opts.c1 = 0.0001
+  lbfgs_opts.c2 = 0.9
+  lbfgs_opts.d = 2.0
+  lbfgs_opts.max_line_search_iters = 50
+  lbfgs_opts.avg_step_length = 4
+  return lbfgs_opts
 
 class Lbfgs():
 

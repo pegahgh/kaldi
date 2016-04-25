@@ -26,3 +26,11 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.info('Testing lbfgs libraray (lbfgs.py)')
 
+def Main():
+  try:
+    lbfgs_opts = LbfgsOptions(true)
+    init_x = 0;
+    Lbfgs optimizer(init_x, lbfgs_opts)
+
+  except Exception as e:
+    
