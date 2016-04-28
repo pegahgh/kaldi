@@ -114,7 +114,7 @@ void NnetXvectorTrainer::ProcessOutputs(NnetComputer *computer) {
       if (nnet_->GetNodeIndex(s_name) == -1 || nnet_->GetNodeIndex(b_name) == -1)
         KALDI_ERR << "The nnet expected to have two output nodes with name s and b.";
 
-      if (xvector_name != s_name && xvector_name != b_name) {
+      if (xvector_name == "output") {
         const CuMatrixBase<BaseFloat> &xvector_pairs = computer->GetOutput(xvector_name),
           &xvec_s = computer->GetOutput(s_name),
           &xvec_b = computer->GetOutput(b_name);

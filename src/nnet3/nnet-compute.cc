@@ -520,7 +520,7 @@ void NnetComputer::CheckInputs(bool check_output_deriv) const {
       if (check_output_deriv && deriv_matrix_index > 0) {
         KALDI_ASSERT(static_cast<size_t>(deriv_matrix_index) < matrices_.size());
         if (matrices_[deriv_matrix_index].NumRows() == 0)
-          KALDI_ERR << "Output-derivative required but not provided for node '"
+          KALDI_WARN << "Output-derivative required but not provided for node '"
                     << name << "'.";
       }
     } else {

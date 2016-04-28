@@ -171,6 +171,10 @@ class Nnet {
   /// returns individual node name.
   const std::string &GetNodeName(int32 node_index) const;
 
+  /// TODO
+  void RenameOutputNode(const std::string &old_name,
+    const std::string &new_name);
+
   /// returns vector of component names (needed by some parsing code, for instance).
   const std::vector<std::string> &GetComponentNames() const;
 
