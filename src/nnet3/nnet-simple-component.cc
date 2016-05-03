@@ -2239,20 +2239,39 @@ void ConstantFunctionComponent::InitFromConfig(ConfigLine *cfl) {
   int32 output_dim = 0;
   InitLearningRatesFromConfig(cfl);
   bool ok = cfl->GetValue("output-dim", &output_dim) &&
-      cfl->GetValue("input-dim", &input_dim_);
+            cfl->GetValue("input-dim", &input_dim_),
+       init_diag = false;
   cfl->GetValue("is-updatable", &is_updatable_);
   cfl->GetValue("use-natural-gradient", &use_natural_gradient_);
   BaseFloat output_mean = 0.0, output_stddev = 0.0;
   cfl->GetValue("output-mean", &output_mean);
   cfl->GetValue("output-stddev", &output_stddev);
+  cfl->GetValue("init-diag-spmat", &init_diag);
   if (!ok || cfl->HasUnusedValues() || input_dim_ <= 0 ||
       output_dim <= 0) {
     KALDI_ERR << "Bad initializer " << cfl->WholeLine();
   }
+
   Vector<BaseFloat> output(output_dim);
-  output.SetRandn();
-  output.Scale(output_stddev);
-  output.Add(output_mean);
+  if (init_diag) {
+    int32 d = (0.5) * (1 + sqrt(1 + 8 * output_dim)) - 1;
+    if (((d + 1) * d) / 2 != output_dim) {
+      KALDI_ERR << "Config init-diag-spmat=true is only valid if the output"
+                << "can be interpreted as an SpMatrix.";
+    }
+    SpMatrix<BaseFloat> output_spmat(d);;
+    Vector<BaseFloat> diag(d);
+    diag.SetRandn();
+    diag.Scale(output_stddev);
+    diag.Add(output_mean);
+    output_spmat.AddDiagVec(1.0, diag);
+    SubVector<BaseFloat> sub_output(output_spmat);
+    output.CopyFromVec(sub_output);
+  } else {
+    output.SetRandn();
+    output.Scale(output_stddev);
+    output.Add(output_mean);
+  }
   output_ = output;
 }
 
