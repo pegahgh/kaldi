@@ -2943,7 +2943,7 @@ void FixedScaleComponent::InitFromConfig(ConfigLine *cfl) {
 
 std::string FixedScaleComponent::Info() const {
   std::ostringstream stream;
-  stream << Component::Info() < ", ";
+  stream << Component::Info() << ", ";
   PrintParameterStats(stream, "scales", scales_, true);
   return stream.str();
 }
