@@ -19,7 +19,7 @@ BINFILES = compute-mfcc-feats compute-plp-feats compute-fbank-feats compute-raw-
     extract-column compute-zero-crossings \
 		extract-vector-segments	\
 		compute-snr-targets compute-frame-snrs vector-to-feat \
-		corrupt-wav 
+		corrupt-wav compute-snr-targets 
 
 OBJFILES =
 

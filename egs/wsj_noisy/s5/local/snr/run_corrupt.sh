@@ -6,7 +6,9 @@ set -o pipefail
 . cmd.sh
 
 num_data_reps=5
-data_dir=data/train_si284
+#data_dir=data/train_si284
+#data_dir=data/sdm1/train_sp_min1.55_40wer_hires
+data_dir=data/sdm1/train_40wer_sp_hires
 dest_wav_dir=wavs
 nj=40
 stage=1

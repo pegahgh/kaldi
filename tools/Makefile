@@ -23,6 +23,7 @@ else
     $(error OpenFst version $(OPENFST_VERSION) is not supported. \
             Supported versions: 1.3.4, 1.4.1)
   endif
+  CXXFLAGS += -std=c++0x
 endif
 
 all: check_required_programs sph2pipe atlas sclite openfst
