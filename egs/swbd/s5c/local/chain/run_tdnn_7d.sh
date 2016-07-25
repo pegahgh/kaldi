@@ -73,7 +73,7 @@ local/nnet3/run_ivector_common.sh --stage $stage \
   --speed-perturb $speed_perturb \
   --generate-alignments $speed_perturb || exit 1;
 
-
+if false; then
 if [ $stage -le 9 ]; then
   # Get the alignments as lattices (gives the CTC training more freedom).
   # use the same num-jobs as the alignments
@@ -103,7 +103,7 @@ if [ $stage -le 11 ]; then
       --leftmost-questions-truncate $leftmost_questions_truncate \
       --cmd "$train_cmd" 9000 data/$train_set $lang $ali_dir $treedir
 fi
-
+fi #100
 if [ $stage -le 12 ]; then
   echo "$0: creating neural net configs";
   if [ -d "exp/nnet3/ivectors_${train_set}" ]; then

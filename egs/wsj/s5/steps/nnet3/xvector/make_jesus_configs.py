@@ -142,11 +142,14 @@ class StatisticsConfig:
     # one output node, but this array explains how it's split up into different types
     # of output (which will affect how we reorder the indexes for the jesus-layer).
     def OutputDims(self):
-        ans = [ self.input_dim ]
+        ans = []
+        if self.output_count:
+          ans.append(self.num_jesus_blocks)
+        
+        ans.append(self.input_dim)
+        
         if self.output_stddev:
             ans.append(self.input_dim)
-        if self.output_count:
-            ans.append(self.num_jesus_blocks)
         return ans
 
     # Descriptor() returns the textual form of the descriptor by which the

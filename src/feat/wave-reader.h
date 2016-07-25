@@ -231,50 +231,6 @@ class WaveInfoHolder {
   T t_;
 };
 
-
-// this like like WaveHolder but when you just want the metadata-
-// it leaves the actual data undefined, it doesn't read it.
-class WaveInfoHolder {
- public:
-  typedef WaveData T;
-
-  static bool Write(std::ostream &os, bool binary, const T &t) {
-    KALDI_ERR << "This holder type does not support writing.";
-    return true;
-  }
-
-  void Copy(const T &t) { t_.CopyFrom(t); }
-
-  static bool IsReadInBinary() { return true; }
-
-  void Clear() { t_.Clear(); }
-
-  const T &Value() { return t_; }
-
-  WaveInfoHolder &operator = (const WaveInfoHolder &other) {
-    t_.CopyFrom(other.t_);
-    return *this;
-  }
-  WaveInfoHolder(const WaveInfoHolder &other): t_(other.t_) {}
-
-  WaveInfoHolder() {}
-
-  bool Read(std::istream &is) {
-    try {
-      t_.Read(is, WaveData::kLeaveDataUndefined);  // throws exception on failure.
-      return true;
-    } catch (const std::exception &e) {
-      KALDI_WARN << "Exception caught in WaveHolder object (reading).";
-      if (!IsKaldiError(e.what())) { std::cerr << e.what(); }
-      return false;  // write failure.
-    }
-  }
-
- private:
-  T t_;
-};
-
-
 }  // namespace kaldi
 
 #endif  // KALDI_FEAT_WAVE_READER_H_

@@ -324,7 +324,7 @@ void ComputationGraphBuilder::ExplainWhyAllOutputsNotComputable() const {
   }
   KALDI_ASSERT(!outputs_not_computable.empty() &&
                "You called this function when everything was computable.");
-  int32 num_print = 10, num_not_computable = outputs_not_computable.size();
+  int32 num_print = 50, num_not_computable = outputs_not_computable.size();
   KALDI_LOG << num_not_computable << " output cindexes out of "
             << num_outputs_total << " were not computable.";
   std::ostringstream os;

@@ -50,7 +50,11 @@ int main(int argc, char *argv[]) {
 
     Nnet nnet;
     ReadKaldiObject(raw_nnet_rxfilename, &nnet);
-
+    
+    int32 left_context, right_context;
+    ComputeSimpleNnetContext(nnet, &left_context, &right_context);
+    std::cout << "Left,right-context= " << left_context << ","
+             << right_context << "\n";
     std::cout << nnet.Info();
     std::cout << SpMatrixOutputInfo(nnet);
 
