@@ -45,6 +45,187 @@ int32 NumInputNodes(const Nnet &nnet) {
   return ans;
 }
 
+int32 GetInputInterval(const Nnet &nnet, const std::string input_name) {
+  int32 node_index = nnet.GetNodeIndex(input_name);
+  if (node_index == -1)
+    return -1;
+  const std::vector<std::string> &node_names = nnet.GetNodeNames();
+  int32 interval = -1;
+  for (int32 i = 0; i < nnet.NumNodes(); i++) {
+    const NetworkNode &node = nnet.GetNode(i);
+    if (node.node_type == kDescriptor) {
+      std::ostringstream ostr;
+      node.descriptor.WriteConfig(ostr, node_names);
+      std::vector<std::string> tokens;
+      DescriptorTokenize(ostr.str(), &tokens);
+      tokens.push_back("end of input");
+      const std::string *next_token = &(tokens[0]);
+      GeneralDescriptor *gen_desc = GeneralDescriptor::Parse(node_names,
+                                                             &next_token);
+      if (*next_token != "end of input")
+        KALDI_ERR << "Parsing Descriptor, expected end of input but got "
+                  << "'" <<  *next_token << "'";
+      int32 new_interval =
+          GetDescriptorInputInterval(*gen_desc, node_index);
+      if (new_interval != -1) {
+        if (new_interval == 0) {
+          if (interval > 0) {
+            // if input is used only at t=0 from the arg we are looking at, and
+            // is used from previous args at some interval > 0, set interval to
+            // 1 as a "hard" case
+            interval = 1;
+          } else {
+            // if input is used only at t=0 from the arg we are looking at, and
+            // input has not been used from the previous args) or was used only
+            // at t=0, set interval to 0
+            interval = 0;
+          }
+        } else if (interval == 0) {
+          // if input is used at some interval > 0 from the arg we are looking
+          // at, and is used only at t=0 from previous args, set interval to 1
+          // as a "hard" case
+          interval = 1;
+        } else if (interval == -1) {
+          // if input is used at some interval > 0 from the arg we are looking
+          // at, and is not used from previous args, set interval to that
+          // interval
+          interval = new_interval;
+        } else {
+          // if input is used at some interval > 0 from the arg we are looking
+          // at and is also used from prvious args at another interval > 0, set
+          // interval to GCD of the two
+          interval = Gcd(interval, new_interval);
+        }
+      } 
+      delete gen_desc;
+    }
+  }
+  return interval;
+}
+
+int32 GetDescriptorInputInterval(const GeneralDescriptor &gen_desc,
+                                 int32 input_node_index) {
+  switch (gen_desc.descriptor_type_) {
+    case GeneralDescriptor::kAppend: case GeneralDescriptor::kSum:
+    case GeneralDescriptor::kFailover: case GeneralDescriptor::kIfDefined:
+    case GeneralDescriptor::kSwitch: {
+      int32 interval = -1;
+      for (size_t i = 0; i < gen_desc.descriptors_.size(); i++) {
+        int32 new_interval =
+            GetDescriptorInputInterval(*(gen_desc.descriptors_[i]),
+                                       input_node_index);
+        if (new_interval != -1) {
+          if (new_interval == 0) {
+            if (interval > 0) {
+              // if input is used only at t=0 from the arg we are looking at,
+              // and is used from previous args at some interval > 0, set
+              // interval to 1 as a "hard" case
+              interval = 1;
+            } else {
+              // if input is used only at t=0 from the arg we are looking at,
+              // and input has not been used from the previous args) or was used
+              // only at t=0, set interval to 0
+              interval = 0;
+            }
+          } else if (interval == 0) {
+            // if input is used at some interval > 0 from the arg we are looking
+            // at, and is used only at t=0 from previous args, set interval to 1
+            // as a "hard" case
+            interval = 1;
+          } else if (interval == -1) {
+            // if input is used at some interval > 0 from the arg we are looking
+            // at, and is not used from previous args, set interval to that
+            // interval
+            interval = new_interval;
+          } else {
+            // if input is used at some interval > 0 from the arg we are looking
+            // at and is also used from prvious args at another interval > 0,
+            // set interval to GCD of the two
+            interval = Gcd(interval, new_interval);
+          }
+        }
+      }
+      return interval;
+    }
+    case GeneralDescriptor::kOffset: {
+      KALDI_ASSERT(gen_desc.descriptors_.size() == 1);
+      int32 interval =
+          GetDescriptorInputInterval(*(gen_desc.descriptors_[0]),
+                                     input_node_index);
+      if (interval == 0) {
+        // in the case where input is used only at t=0 from the arg of "Offset",
+        // if offset by 0, return 0; otherwise return 1 as a "hard" case
+        return gen_desc.value1_ == 0 ? 0 : 1;
+      } else if (interval > 0 && gen_desc.value1_ % interval != 0) {
+        // if input is used from the arg at some interval > 0 and offset by
+        // other than multiple of interval, return 1 as a "hard" case
+        return 1;
+      } else {
+        // if input is used from the arg at some interval > 0 and offset by a
+        // multiple of interval, or input is not used from the arg, just keep
+        // interval 
+        return interval;
+      }
+    }
+    case GeneralDescriptor::kRound: {
+      KALDI_ASSERT(gen_desc.descriptors_.size() == 1);
+      int32 interval =
+          GetDescriptorInputInterval(*(gen_desc.descriptors_[0]),
+                                     input_node_index);
+      if (interval > 0)
+        if (gen_desc.value1_ >= interval) {
+          // if t is rounded with a larger modulus than interval from the arg,
+          // we will instead have t at all multiples of that larger number
+          return gen_desc.value1_;
+        } else {
+          if (interval % gen_desc.value1_ == 0) {
+            // if the modulus is smaller than interval from the arg,
+            // and interval is a multiple of the modulus, we will still have
+            // interval
+            return interval;
+          } else {
+            // if the modulus is smaller than interval from the arg,
+            // and interval is not a multiple of the modulus,  we will no
+            // longer have t at all multiples of either number of the two, then
+            // return 1 as a "hard" case
+            return 1;
+          }
+        } else {
+        // if interval <= 0, just keep interval as "Round" has no effect on it
+        return interval;
+      }
+    }
+    case GeneralDescriptor::kReplaceIndex: {
+      KALDI_ASSERT(gen_desc.descriptors_.size() == 1);
+      int32 interval =
+          GetDescriptorInputInterval(*(gen_desc.descriptors_[0]),
+                                     input_node_index);
+      if (gen_desc.value1_ == int32(ReplaceIndexForwardingDescriptor::kT) &&
+          interval >= 0) {
+        // in the case where the input is used at least once from the arg of
+        // "ReplaceIndex" and the replacement takes place on t, if replace t
+        // with 0, then return 0; otherwise, i.e. if replace t with other
+        // values, return 1 as a "hard" case 
+        return gen_desc.value2_ == 0 ? 0 : 1;
+      } else {
+        // if replacement is on x, or input is not used from the arg,
+        // just keep interval
+        return interval;
+      }
+    }
+    case GeneralDescriptor::kNodeName: {
+      // if the input is used as NodeName, return 1, otherwise -1 
+      if (gen_desc.value1_ == input_node_index)
+        return 1;
+      else
+        return -1;
+    }
+    default:
+      KALDI_ERR << "Invalid descriptor type.";
+      return -1;
+  }
+}
+
 
 bool IsSimpleNnet(const Nnet &nnet) {
   // check that we have an output node and called "output".
@@ -106,9 +287,20 @@ static void ComputeSimpleNnetContextForShift(
     input.indexes.push_back(Index(n, t));
     output.indexes.push_back(Index(n, t));
   }
-  // the assumption here is that the network just requires the ivector at time
-  // t=0.
-  ivector.indexes.push_back(Index(n, 0));
+  // push the indexes for ivector(s)
+  int32 ivector_period = GetInputInterval(nnet, "ivector");
+  if (ivector_period == 0)
+    // single ivector for the entire chunk
+    // the assumption here is that the network just requires the ivector at time
+    // t=0
+    ivector.indexes.push_back(Index(n, 0));
+  else {
+    // multiple ivectors, so push multiple indexes
+    int32 t_begin = DivideRoundingDown(input_start, ivector_period);
+    int32 t_end = DivideRoundingDown(input_end - 1, ivector_period);
+    for (int32 t = t_begin; t <= t_end; t++)
+      ivector.indexes.push_back(Index(n, t * ivector_period));
+  }
 
   ComputationRequest request;
   request.inputs.push_back(input);
@@ -305,7 +497,8 @@ void ScaleLearningRates(const Vector<BaseFloat> &scales,
 
 void SetLearningRates(const Vector<BaseFloat> &learning_rates,
                      Nnet *nnet) {
-  for (int32 c = 0, i = 0; c < nnet->NumComponents(); c++) {
+  int32 i = 0;
+  for (int32 c = 0; c < nnet->NumComponents(); c++) {
     Component *comp = nnet->GetComponent(c);
     if (comp->Properties() & kUpdatableComponent) {
       // For now all updatable components inherit from class UpdatableComponent.
@@ -315,15 +508,17 @@ void SetLearningRates(const Vector<BaseFloat> &learning_rates,
         KALDI_ERR << "Updatable component does not inherit from class "
             "UpdatableComponent; change this code.";
       KALDI_ASSERT(i < learning_rates.Dim());
-      uc->SetActualLearningRate(learning_rates(i));
+      uc->SetActualLearningRate(learning_rates(i++));
     }
   }
+  KALDI_ASSERT(i == learning_rates.Dim());
 }
 
 void GetLearningRates(const Nnet &nnet,
                       Vector<BaseFloat> *learning_rates) {
   learning_rates->Resize(NumUpdatableComponents(nnet));
-  for (int32 c = 0, i = 0; c < nnet.NumComponents(); c++) {
+  int32 i = 0;
+  for (int32 c = 0; c < nnet.NumComponents(); c++) {
     const Component *comp = nnet.GetComponent(c);
     if (comp->Properties() & kUpdatableComponent) {
       // For now all updatable components inherit from class UpdatableComponent.
@@ -335,11 +530,13 @@ void GetLearningRates(const Nnet &nnet,
       (*learning_rates)(i++) = uc->LearningRate();
     }
   }
+  KALDI_ASSERT(i == learning_rates->Dim());
 }
 
 void ScaleNnetComponents(const Vector<BaseFloat> &scale_factors,
                          Nnet *nnet) {
-  for (int32 c = 0, i = 0; c < nnet->NumComponents(); c++) {
+  int32 i = 0;
+  for (int32 c = 0; c < nnet->NumComponents(); c++) {
     Component *comp = nnet->GetComponent(c);
     if (comp->Properties() & kUpdatableComponent) {
       // For now all updatable components inherit from class UpdatableComponent.
@@ -349,9 +546,10 @@ void ScaleNnetComponents(const Vector<BaseFloat> &scale_factors,
         KALDI_ERR << "Updatable component does not inherit from class "
             "UpdatableComponent; change this code.";
       KALDI_ASSERT(i < scale_factors.Dim());
-      uc->Scale(scale_factors(i));
+      uc->Scale(scale_factors(i++));
     }
   }
+  KALDI_ASSERT(i == scale_factors.Dim());
 }
 
 void ScaleNnet(BaseFloat scale, Nnet *nnet) {
@@ -505,6 +703,7 @@ std::string NnetInfo(const Nnet &nnet) {
   }
   ostr << "input-dim: " << nnet.InputDim("input") << "\n";
   ostr << "ivector-dim: " << nnet.InputDim("ivector") << "\n";
+  ostr << "ivector-period: " << GetInputInterval(nnet, "ivector") << "\n";
   ostr << "output-dim: " << nnet.OutputDim("output") << "\n";
   ostr << "# Nnet info follows.\n";
   ostr << nnet.Info();

@@ -30,6 +30,59 @@
 namespace kaldi {
 namespace nnet3 {
 
+/** add iVectors to Egs.
+*/
+static void GetIvectorsForEgs(int32 chunk_start, int32 left_context,
+                              int32 right_context, int32 chunk_size,
+                              int32 ivector_period,
+                              const MatrixBase<BaseFloat> *ivector_feats,
+                              NnetChainExample *eg) {
+  KALDI_ASSERT(ivector_feats->NumRows() > 0);
+  if (ivector_period == 0) {
+    // single ivector case.
+    // if applicable, add the iVector feature.
+    // try to get closest frame to middle of window to get
+    // a representative iVector.
+    int32 closest_frame = chunk_start + chunk_size / 2;
+    KALDI_ASSERT(ivector_feats->NumRows() > 0);
+    if (closest_frame >= ivector_feats->NumRows())
+      closest_frame = ivector_feats->NumRows() - 1;
+    Matrix<BaseFloat> ivector(1, ivector_feats->NumCols());
+    ivector.Row(0).CopyFromVec(ivector_feats->Row(closest_frame));
+    NnetIo ivector_io("ivector", 0, ivector);
+    eg->inputs[1].Swap(&ivector_io);
+  } else {
+    // multiple ivectors case.
+    // try to get a representative iVector every ivector_period frames
+    // in an eg.
+    // num_ivectors_in_left_context is the num of ivectors for frames whose
+    // t < 0. It is used to compute the value of ivector_frame.
+    // num_ivectors is the num of ivectors for frames whose t >= 0.
+    // Both of them are computed according to how Round descriptor works, which
+    // basically returns floor(t / <t-modulus>) * <t-modulus>.
+    int32 num_ivectors_in_left_context =
+        -1 * DivideRoundingDown(-left_context, ivector_period); 
+    int32 num_ivectors = num_ivectors_in_left_context + 1 +
+        DivideRoundingDown(chunk_size + right_context - 1, ivector_period);
+    Matrix<BaseFloat> ivectors(num_ivectors, ivector_feats->NumCols());
+    for (int32 n = 0; n < num_ivectors; n++) {
+      // ivector_frame is the frame at whole multiples of ivector_period
+      int32 ivector_frame = chunk_start +
+          (n - num_ivectors_in_left_context) * ivector_period;
+      if (ivector_frame < 0)
+        ivector_frame = 0;
+      else if (ivector_frame >= ivector_feats->NumRows())
+        ivector_frame = ivector_feats->NumRows() - 1;
+      ivectors.Row(n).CopyFromVec(ivector_feats->Row(ivector_frame));
+    }
+    NnetIo ivector_io("ivector", -num_ivectors_in_left_context, ivectors);
+    eg->inputs[1].Swap(&ivector_io);
+    // multiplied each t by the factor ivector_period
+    // according to the definition of the Round descriptor
+    for (int32 n = 0; n < eg->inputs.back().indexes.size(); n++)
+      eg->inputs.back().indexes[n].t *= ivector_period;
+  }
+}
 
 /**
    This function does all the processing for one utterance, and outputs the
@@ -44,6 +97,7 @@ static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
                         const chain::Supervision &supervision,
                         const std::string &utt_id,
                         bool compress,
+                        int32 ivector_period,
                         int32 left_context,
                         int32 right_context,
                         int32 frames_per_eg,
@@ -84,7 +138,8 @@ static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
     for (int32 i = num_feature_frames; i < new_num_feature_frames; i++)
       feats_new.Row(i).CopyFromVec(feats.Row(num_feature_frames - 1));
     return ProcessFile(normalization_fst, feats_new, ivector_feats,
-                       supervision, utt_id, compress, left_context, right_context,
+                       supervision, utt_id, compress, ivector_period, 
+                       left_context, right_context,
                        frames_per_eg, frames_overlap_per_eg, frame_subsampling_factor,
                        cut_zero_frames, num_frames_written, num_egs_written,
                        example_writer);
@@ -96,8 +151,11 @@ static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
       frames_overlap_subsampled = frames_overlap_per_eg / frame_subsampling_factor,
       frames_shift_subsampled = frames_per_eg_subsampled - frames_overlap_subsampled;
 
-  if (num_feature_frames_subsampled < frames_per_eg_subsampled)
+  if (num_feature_frames_subsampled < frames_per_eg_subsampled) {
+    KALDI_WARN << "Length of features for utterance " << utt_id
+               << " is less than than the frames_per_eg (after sub-sampling).";
     return false;
+  }
 
   // we don't do any padding, as it would be a bit tricky to pad the 'chain' supervision.
   // Instead we select ranges of frames that fully fit within the file;  these
@@ -178,19 +236,9 @@ static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
                     input_frames);
     nnet_chain_eg.inputs[0].Swap(&input_io);
 
-    if (ivector_feats != NULL) {
-      // if applicable, add the iVector feature.
-      // try to get closest frame to middle of window to get
-      // a representative iVector.
-      int32 closest_frame = range_start + frames_per_eg / 2;
-      KALDI_ASSERT(ivector_feats->NumRows() > 0);
-      if (closest_frame >= ivector_feats->NumRows())
-        closest_frame = ivector_feats->NumRows() - 1;
-      Matrix<BaseFloat> ivector(1, ivector_feats->NumCols());
-      ivector.Row(0).CopyFromVec(ivector_feats->Row(closest_frame));
-      NnetIo ivector_io("ivector", 0, ivector);
-      nnet_chain_eg.inputs[1].Swap(&ivector_io);
-    }
+    if (ivector_feats != NULL)
+      GetIvectorsForEgs(range_start, left_context, right_context, frames_per_eg,
+                        ivector_period, ivector_feats, &nnet_chain_eg);
 
     if (compress)
       nnet_chain_eg.Compress();
@@ -238,7 +286,7 @@ int main(int argc, char *argv[]) {
 
     bool compress = true;
     int32 left_context = 0, right_context = 0, num_frames = 1,
-        num_frames_overlap = 0, length_tolerance = 100,
+        num_frames_overlap = 0, length_tolerance = 100, ivector_period = 10,
         cut_zero_frames = -1,
         frame_subsampling_factor = 1;
 
@@ -269,6 +317,11 @@ int main(int argc, char *argv[]) {
     po.Register("frame-subsampling-factor", &frame_subsampling_factor, "Used "
                 "if the frame-rate at the output will be less than the "
                 "frame-rate of the input");
+    po.Register("ivector-period", &ivector_period, "0 means having "
+                "only one ivector for each example. If non-zero, this value is "
+                "the period with which ivectors to be dumped in "
+                "the example. It is recommended to have an ivector-period of "
+                "at most 10, for good results.");
 
     po.Read(argc, argv);
 
@@ -276,6 +329,9 @@ int main(int argc, char *argv[]) {
       po.PrintUsage();
       exit(1);
     }
+
+    if (ivector_period < 0)
+      KALDI_ERR << "--ivector-period should be non-negative.";
 
     if (num_frames <= 0 || left_context < 0 || right_context < 0 ||
         length_tolerance < 0 || frame_subsampling_factor <= 0)
@@ -345,7 +401,7 @@ int main(int argc, char *argv[]) {
           continue;
         }
         if (ProcessFile(normalization_fst, feats, ivector_feats, supervision,
-                        key, compress,
+                        key, compress, ivector_period,
                         left_context, right_context, num_frames,
                         num_frames_overlap, frame_subsampling_factor,
                         cut_zero_frames, &num_frames_written, &num_egs_written,

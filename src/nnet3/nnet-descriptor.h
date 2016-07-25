@@ -538,6 +538,9 @@ struct GeneralDescriptor {
   void Print(const std::vector<std::string> &node_names,
              std::ostream &os);
 
+  friend int32 GetDescriptorInputInterval(const GeneralDescriptor &gen_desc,                    
+                                          int32 input_node_index); 
+
  private:
   KALDI_DISALLOW_COPY_AND_ASSIGN(GeneralDescriptor);
 

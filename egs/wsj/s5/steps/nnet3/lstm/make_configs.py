@@ -50,6 +50,10 @@ def GetArgs():
                         default=0.0)
     parser.add_argument("--include-log-softmax", type=str, action=nnet3_train_lib.StrToBoolAction,
                         help="add the final softmax layer ", default=True, choices = ["false", "true"])
+    parser.add_argument("--ivector-period", type=int,
+                        help="If positive, it is the period with which ivectors are supplied for a chunk. "
+                        "If zero, a single ivector will be used for the entire chunk.", default=10)
+
 
     # LSTM options
     parser.add_argument("--num-lstm-layers", type=int,
@@ -119,6 +123,9 @@ def CheckArgs(args):
 
     if not args.ivector_dim >= 0:
         raise Exception("ivector-dim has to be non-negative")
+
+    if not args.ivector_period >= 0:
+        raise Exception("ivector-period has to be non-negative")
 
     if (args.num_lstm_layers < 1):
         sys.exit("--num-lstm-layers has to be a positive integer")
@@ -204,7 +211,7 @@ def ParseLstmDelayString(lstm_delay):
     return lstm_delay_array
 
 
-def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
+def MakeConfigs(config_dir, feat_dim, ivector_dim, ivector_period, num_targets,
                 splice_indexes, lstm_delay, cell_dim,
                 recurrent_projection_dim, non_recurrent_projection_dim,
                 num_lstm_layers, num_hidden_layers,
@@ -215,7 +222,7 @@ def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
     config_lines = {'components':[], 'component-nodes':[]}
 
     config_files={}
-    prev_layer_output = nodes.AddInputLayer(config_lines, feat_dim, splice_indexes[0], ivector_dim)
+    prev_layer_output = nodes.AddInputLayer(config_lines, feat_dim, splice_indexes[0], ivector_dim, ivector_period)
 
     # Add the init config lines for estimating the preconditioning matrices
     init_config_lines = copy.deepcopy(config_lines)
@@ -315,16 +322,26 @@ def Main():
     args = GetArgs()
     [left_context, right_context, num_hidden_layers, splice_indexes] = ProcessSpliceIndexes(args.config_dir, args.splice_indexes, args.label_delay, args.num_lstm_layers)
 
-    MakeConfigs(args.config_dir,
-                args.feat_dim, args.ivector_dim, args.num_targets,
-                splice_indexes, args.lstm_delay, args.cell_dim,
-                args.recurrent_projection_dim, args.non_recurrent_projection_dim,
-                args.num_lstm_layers, num_hidden_layers,
-                args.norm_based_clipping,
-                args.clipping_threshold,
-                args.ng_per_element_scale_options, args.ng_affine_options,
-                args.label_delay, args.include_log_softmax, args.xent_regularize,
-                args.self_repair_scale)
+    MakeConfigs(config_dir = args.config_dir,
+                feat_dim = args.feat_dim,
+                ivector_dim = args.ivector_dim,
+                ivector_period = args.ivector_period,
+                num_targets = args.num_targets,
+                splice_indexes = splice_indexes,
+                lstm_delay = args.lstm_delay,
+                cell_dim = args.cell_dim,
+                recurrent_projection_dim = args.recurrent_projection_dim,
+                non_recurrent_projection_dim = args.non_recurrent_projection_dim,
+                num_lstm_layers = args.num_lstm_layers,
+                num_hidden_layers = num_hidden_layers,
+                norm_based_clipping = args.norm_based_clipping,
+                clipping_threshold = args.clipping_threshold,
+                ng_per_element_scale_options = args.ng_per_element_scale_options,
+                ng_affine_options = args.ng_affine_options,
+                label_delay = args.label_delay,
+                include_log_softmax = args.include_log_softmax,
+                xent_regularize = args.xent_regularize,
+                self_repair_scale = args.self_repair_scale)
 
 if __name__ == "__main__":
     Main()

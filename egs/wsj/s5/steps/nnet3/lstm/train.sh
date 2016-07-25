@@ -101,6 +101,9 @@ egs_opts=
 transform_dir=     # If supplied, this dir used instead of alidir to find transforms.
 cmvn_opts=  # will be passed to get_lda.sh and get_egs.sh, if supplied.
             # only relevant for "raw" features, not lda.
+ivector_period=10      # 0 means having only one ivector for each example. If non-zero, this value is the period
+                       # with which ivectors are to be dumped in the example. It is recommended to have
+                       # an ivector-period of at most 10, for good results.
 feat_type=raw  # or set to 'lda' to use LDA features.
 align_cmd=              # The cmd that is passed to steps/nnet2/align.sh
 align_use_gpu=          # Passed to use_gpu in steps/nnet2/align.sh [yes/no]
@@ -184,6 +187,9 @@ if [ $# != 4 ]; then
   echo "  --shrink <shrink|0.99>                           # if non-zero this parameter will be used to scale the parameter matrices"
   echo "  --shrink-threshold <threshold|0.15>              # a threshold (should be between 0.0 and 0.25) that controls when to"
   echo "                                                   # do parameter shrinking."
+  echo "  --ivector-period <int|10>                        # 0 means having only one ivector for each example. If non-zero, this value is the period"
+  echo "                                                   # with which ivectors are to be dumped in the example. It is recommended to have"
+  echo "                                                   # an ivector-period of at most 10, for good results."
   echo " for more options see the script"
   exit 1;
 fi
@@ -238,6 +244,7 @@ else
 fi
 
 
+
 if [ $stage -le -5 ]; then
   echo "$0: creating neural net configs";
 
@@ -261,6 +268,7 @@ if [ $stage -le -5 ]; then
     --clipping-threshold $clipping_threshold \
     --num-targets $num_leaves \
     --label-delay $label_delay \
+    --ivector-period $ivector_period \
    $dir/configs || exit 1;
   # Initialize as "raw" nnet, prior to training the LDA-like preconditioning
   # matrix.  This first config just does any initial splicing that we do;
@@ -532,16 +540,16 @@ while [ $x -lt $num_iters ]; do
     # Use the egs dir from the previous iteration for the diagnostics
     $cmd $dir/log/compute_prob_valid.$x.log \
       nnet3-compute-prob "nnet3-am-copy --raw=true $dir/$x.mdl - |" \
-            "ark:nnet3-merge-egs ark:$cur_egs_dir/valid_diagnostic.egs ark:- |" &
+            "ark,bg:nnet3-merge-egs ark:$cur_egs_dir/valid_diagnostic.egs ark:- |" &
     $cmd $dir/log/compute_prob_train.$x.log \
       nnet3-compute-prob "nnet3-am-copy --raw=true $dir/$x.mdl - |" \
-           "ark:nnet3-merge-egs ark:$cur_egs_dir/train_diagnostic.egs ark:- |" &
+           "ark,bg:nnet3-merge-egs ark:$cur_egs_dir/train_diagnostic.egs ark:- |" &
 
     if [ $x -gt 0 ]; then
       $cmd $dir/log/progress.$x.log \
         nnet3-info "nnet3-am-copy --raw=true $dir/$x.mdl - |" '&&' \
         nnet3-show-progress --use-gpu=no "nnet3-am-copy --raw=true $dir/$[$x-1].mdl - |" "nnet3-am-copy --raw=true $dir/$x.mdl - |" \
-        "ark:nnet3-merge-egs --minibatch-size=256 ark:$cur_egs_dir/train_diagnostic.egs ark:-|" &
+        "ark,bg:nnet3-merge-egs --minibatch-size=256 ark:$cur_egs_dir/train_diagnostic.egs ark:-|" &
     fi
 
     echo "Training neural net (pass $x)"
@@ -601,7 +609,7 @@ while [ $x -lt $num_iters ]; do
           nnet3-train $parallel_train_opts $cache_read_opt $cache_write_opt --print-interval=10 --momentum=$momentum \
           --max-param-change=$max_param_change \
           --optimization.min-deriv-time=$min_deriv_time "$raw" \
-          "ark:nnet3-copy-egs $context_opts ark:$cur_egs_dir/egs.$archive.ark ark:- | nnet3-shuffle-egs --buffer-size=$shuffle_buffer_size --srand=$x ark:- ark:-| nnet3-merge-egs --minibatch-size=$this_num_chunk_per_minibatch --measure-output-frames=false --discard-partial-minibatches=true ark:- ark:- |" \
+          "ark,bg:nnet3-copy-egs $context_opts ark:$cur_egs_dir/egs.$archive.ark ark:- | nnet3-shuffle-egs --buffer-size=$shuffle_buffer_size --srand=$x ark:- ark:-| nnet3-merge-egs --minibatch-size=$this_num_chunk_per_minibatch --measure-output-frames=false --discard-partial-minibatches=true ark:- ark:- |" \
           $dir/$[$x+1].$n.raw || touch $dir/.error &
       done
       wait
@@ -670,7 +678,7 @@ if [ $stage -le $num_iters ]; then
   $cmd $combine_queue_opt $dir/log/combine.log \
     nnet3-combine --num-iters=40 \
        --enforce-sum-to-one=true --enforce-positive-weights=true \
-       --verbose=3 "${nnets_list[@]}" "ark:nnet3-merge-egs --measure-output-frames=false --minibatch-size=$combine_num_chunk_per_minibatch ark:$cur_egs_dir/combine.egs ark:-|" \
+       --verbose=3 "${nnets_list[@]}" "ark,bg:nnet3-merge-egs --measure-output-frames=false --minibatch-size=$combine_num_chunk_per_minibatch ark:$cur_egs_dir/combine.egs ark:-|" \
     "|nnet3-am-copy --set-raw-nnet=- $dir/$num_iters.mdl $dir/combined.mdl" || exit 1;
 
   # Compute the probability of the final, combined model with
@@ -678,10 +686,10 @@ if [ $stage -le $num_iters ]; then
   # different subsets will lead to different probs.
   $cmd $dir/log/compute_prob_valid.final.log \
     nnet3-compute-prob "nnet3-am-copy --raw=true $dir/combined.mdl -|" \
-    "ark:nnet3-merge-egs --minibatch-size=256 ark:$cur_egs_dir/valid_diagnostic.egs ark:- |" &
+    "ark,bg:nnet3-merge-egs --minibatch-size=256 ark:$cur_egs_dir/valid_diagnostic.egs ark:- |" &
   $cmd $dir/log/compute_prob_train.final.log \
     nnet3-compute-prob  "nnet3-am-copy --raw=true $dir/combined.mdl -|" \
-    "ark:nnet3-merge-egs --minibatch-size=256 ark:$cur_egs_dir/train_diagnostic.egs ark:- |" &
+    "ark,bg:nnet3-merge-egs --minibatch-size=256 ark:$cur_egs_dir/train_diagnostic.egs ark:- |" &
 fi
 
 if [ $stage -le $[$num_iters+1] ]; then

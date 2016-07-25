@@ -53,6 +53,19 @@ int32 NumOutputNodes(const Nnet &nnet);
 /// returns the number of input nodes of this nnet.
 int32 NumInputNodes(const Nnet &nnet);
 
+/// This function works out the interval at which a particular named
+/// input (e.g. input_name == "input" or input_name == "ivector") is
+/// used.  If the input is not used at all this function returns -1;
+/// if it is potentially used on every frame (every "t" value) it returns 1
+/// if it is only used on frame 0 it returns 0; and if it is used only
+/// on multiples of n frames with n > 1, it returns n.
+int32 GetInputInterval(const Nnet &nnet, const std::string input_name);
+
+/// Get input interval from a descriptor. This function called from
+/// GetInputInterval().
+int32 GetDescriptorInputInterval(const GeneralDescriptor &gen_desc,               
+                                 int32 input_node_index); 
+
 /// Calls SetZero (with the given is_gradient parameter) on all updatable
 /// components of the nnet.
 void SetZero(bool is_gradient,

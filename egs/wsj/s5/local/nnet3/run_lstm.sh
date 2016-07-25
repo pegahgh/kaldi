@@ -71,7 +71,13 @@ if [ $stage -le 8 ]; then
      /export/b0{3,4,5,6}/$USER/kaldi-data/egs/wsj-$(date +'%m_%d_%H_%M')/s5/$dir/egs/storage $dir/egs/storage
   fi
 
-  steps/nnet3/lstm/train.sh --stage $train_stage \
+  if [ -d "exp/nnet3/ivectors_train_si284" ]; then
+    ivector_period=$(cat exp/nnet3/ivectors_train_si284/ivector_period) || exit 1;
+  fi
+  ivector_period_opt=${ivector_period:+" --ivector-period=$ivector_period"}
+
+  steps/nnet3/lstm/train.sh $ivector_period_opt \
+    --stage $train_stage \
     --label-delay $label_delay \
     --lstm-delay "$lstm_delay" \
     --num-epochs $num_epochs --num-jobs-initial $num_jobs_initial --num-jobs-final $num_jobs_final \
@@ -114,11 +120,11 @@ if [ $stage -le 9 ]; then
       (
       num_jobs=`cat data/test_${year}_hires/utt2spk|cut -d' ' -f2|sort -u|wc -l`
       steps/nnet3/lstm/decode.sh --nj $num_jobs --cmd "$decode_cmd" \
-	  --extra-left-context $extra_left_context \
-	  --extra-right-context $extra_right_context \
-	  --frames-per-chunk "$frames_per_chunk" \
-	  --online-ivector-dir exp/nnet3/ivectors_test_$year \
-	 $graph_dir data/test_${year}_hires $dir/decode_${lm_suffix}_${year} || exit 1;
+        --extra-left-context $extra_left_context \
+        --extra-right-context $extra_right_context \
+        --frames-per-chunk "$frames_per_chunk" \
+        --online-ivector-dir exp/nnet3/ivectors_test_$year \
+        $graph_dir data/test_${year}_hires $dir/decode_${lm_suffix}_${year} || exit 1;
       ) &
     done
   done

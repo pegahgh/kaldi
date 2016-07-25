@@ -44,6 +44,7 @@ NnetDecodableBase::NnetDecodableBase(
   num_subsampled_frames_ =
       (feats_.NumRows() + opts_.frame_subsampling_factor - 1) /
       opts_.frame_subsampling_factor;
+    ivector_period_ = GetInputInterval(nnet, "ivector");
   KALDI_ASSERT(IsSimpleNnet(nnet));
   ComputeSimpleNnetContext(nnet, &nnet_left_context_, &nnet_right_context_);
   KALDI_ASSERT(!(ivector != NULL && online_ivectors != NULL));
@@ -134,17 +135,17 @@ void NnetDecodableBase::EnsureFrameIsComputed(int32 subsampled_frame) {
   int32 first_input_frame = first_output_frame - left_context,
       last_input_frame = last_output_frame + right_context,
       num_input_frames = last_input_frame + 1 - first_input_frame;
-  Vector<BaseFloat> ivector;
-  GetCurrentIvector(first_output_frame,
-                    last_output_frame - first_output_frame,
-                    &ivector);
+  Matrix<BaseFloat> ivectors;
+  GetIvectorsForFrames(first_output_frame,
+                       last_output_frame - first_output_frame + 1,
+                       &ivectors);
 
   Matrix<BaseFloat> input_feats;
   if (first_input_frame >= 0 &&
       last_input_frame < feats_.NumRows()) {
     SubMatrix<BaseFloat> input_feats(feats_.RowRange(first_input_frame,
                                                      num_input_frames));
-    DoNnetComputation(first_input_frame, input_feats, ivector,
+    DoNnetComputation(first_input_frame, input_feats, ivectors,
                       first_output_frame, num_subsampled_frames);
   } else {
     Matrix<BaseFloat> feats_block(num_input_frames, feats_.NumCols());
@@ -157,7 +158,7 @@ void NnetDecodableBase::EnsureFrameIsComputed(int32 subsampled_frame) {
       const SubVector<BaseFloat> src(feats_, t);
       dest.CopyFromVec(src);
     }
-    DoNnetComputation(first_input_frame, feats_block, ivector,
+    DoNnetComputation(first_input_frame, feats_block, ivectors,
                       first_output_frame, num_subsampled_frames);
   }
 }
@@ -174,24 +175,19 @@ void NnetDecodableBase::GetOutputForFrame(int32 subsampled_frame,
       subsampled_frame - current_log_post_subsampled_offset_));
 }
 
-void NnetDecodableBase::GetCurrentIvector(int32 output_t_start,
-                                          int32 num_output_frames,
-                                          Vector<BaseFloat> *ivector) {
+void NnetDecodableBase::GetCurrentIvector(int32 frame_to_search,
+                                          VectorBase<BaseFloat> *ivector) {
   if (ivector_ != NULL) {
-    *ivector = *ivector_;
-    return;
-  } else if (online_ivector_feats_ == NULL) {
+    ivector->CopyFromVec(*ivector_);
     return;
   }
+  // The case that ivector_ == NULL && online_ivector_feats_ == NULL
+  // has been handled from the caller of this function GetIvectorsForFrames(),
+  // so we make this assert here and will extract an ivector for frame at
+  // frame_to_search
+  KALDI_ASSERT(online_ivector_feats_ != NULL);
   KALDI_ASSERT(online_ivector_period_ > 0);
-  // frame_to_search is the frame that we want to get the most recent iVector
-  // for.  We choose a point near the middle of the current window, the concept
-  // being that this is the fairest comparison to nnet2.   Obviously we could do
-  // better by always taking the last frame's iVector, but decoding with
-  // 'online' ivectors is only really a mechanism to simulate online operation.
-  int32 frame_to_search = output_t_start + num_output_frames / 2;
   int32 ivector_frame = frame_to_search / online_ivector_period_;
-  KALDI_ASSERT(ivector_frame >= 0);
   if (ivector_frame >= online_ivector_feats_->NumRows()) {
     int32 margin = ivector_frame - (online_ivector_feats_->NumRows() - 1);
     if (margin * online_ivector_period_ > 50) {
@@ -203,15 +199,79 @@ void NnetDecodableBase::GetCurrentIvector(int32 output_t_start,
                 << " (mismatched --ivector-period?)";
     }
     ivector_frame = online_ivector_feats_->NumRows() - 1;
+  } else if (ivector_frame < 0) {
+    ivector_frame = 0;
   }
-  *ivector = online_ivector_feats_->Row(ivector_frame);
+  ivector->CopyFromVec(online_ivector_feats_->Row(ivector_frame));
 }
 
+void NnetDecodableBase::GetIvectorsForFrames(int32 output_t_start,
+                                             int32 num_output_frames,
+                                             Matrix<BaseFloat> *ivectors) {
+  // if no ivectors have been specified either as online ivectors or as ivector
+  // for utterance, just return and leave the size of ivectors matrix as 0 
+  if (ivector_ == NULL && online_ivector_feats_ == NULL) {
+    KALDI_ASSERT(ivectors->NumCols() == 0);
+    return;
+  }
+  const int32 left_context = nnet_left_context_ + opts_.extra_left_context,
+        right_context = nnet_right_context_ + opts_.extra_right_context;
+  // frame_to_search is the frame that we want to get the most recent iVector
+  // for. In single ivector case, We choose a point near the middle of the
+  // current window, the concept being that this is the fairest comparison to
+  // nnet2. In multiple ivectors case, we just choose frames at whole multiples
+  // of ivector_period_. Obviously we could do better by always taking the
+  // last frame's iVector, but decoding with 'online' ivectors is only really
+  // a mechanism to simulate online operation.
+  if (ivector_period_ == 0) { // single ivector case
+    ivectors->Resize(1, online_ivector_feats_->NumCols());
+    int32 frame_to_search = output_t_start + num_output_frames / 2;
+    SubVector<BaseFloat> sub_ivector(*ivectors, 0);
+    GetCurrentIvector(frame_to_search, &sub_ivector);
+  } else { // multiple ivectors case
+    // num_ivectors_in_left_context is the num of ivectors for frames
+    // whose "t" index < 0. It is used to compute the value of frame_to_search,
+    // which is the frame at whole multiples of ivector_period_.
+    // num_ivectors is the num of ivectors for the entire chunk.
+    // Both of them are computed according to how Round descriptor works, which
+    // basically returns floor(t / <t-modulus>) * <t-modulus>.
+    // (The assumption is that the t index of the first outptut frame is 0)
+    int32 num_ivectors_in_left_context =
+        -1 * DivideRoundingDown(-left_context, ivector_period_);
+    int32 num_ivectors = num_ivectors_in_left_context +
+        DivideRoundingDown(num_output_frames + right_context - 1,
+                           ivector_period_) + 1;
+    ivectors->Resize(num_ivectors, online_ivector_feats_->NumCols());
+    for (int32 n = 0; n < num_ivectors; n++) {
+      int32 frame_to_search = output_t_start +
+          (n - num_ivectors_in_left_context) * ivector_period_;
+      SubVector<BaseFloat> sub_ivector(*ivectors, n);
+      GetCurrentIvector(frame_to_search, &sub_ivector);
+    }
+  }
+}
+
+void NnetDecodableBase::GenerateIndexesForIvectors(
+    const ComputationRequest &request, std::vector<Index> *indexes) {
+  KALDI_ASSERT(indexes != NULL);
+  if (ivector_period_ == 0)
+    indexes->push_back(Index(0, 0, 0));
+  else {
+    KALDI_ASSERT(request.inputs[0].name == "input");
+    int32 input_t_first = request.inputs[0].indexes.front().t;
+    int32 input_t_last = request.inputs[0].indexes.back().t;
+    int32 i_first = DivideRoundingDown(input_t_first, ivector_period_);
+    int32 i_last = DivideRoundingDown(input_t_last, ivector_period_);
+    for (int i = i_first; i <= i_last; i++)
+      // generate indexes according to the definition of the Round descriptor
+      indexes->push_back(Index(0, i * ivector_period_, 0));
+  }
+}
 
 void NnetDecodableBase::DoNnetComputation(
     int32 input_t_start,
     const MatrixBase<BaseFloat> &input_feats,
-    const VectorBase<BaseFloat> &ivector,
+    const MatrixBase<BaseFloat> &ivectors,
     int32 output_t_start,
     int32 num_subsampled_frames) {
   ComputationRequest request;
@@ -228,9 +288,9 @@ void NnetDecodableBase::DoNnetComputation(
   request.inputs.push_back(
       IoSpecification("input", time_offset + input_t_start,
                       time_offset + input_t_start + input_feats.NumRows()));
-  if (ivector.Dim() != 0) {
+  if (ivectors.NumCols() != 0) {
     std::vector<Index> indexes;
-    indexes.push_back(Index(0, 0, 0));
+    GenerateIndexesForIvectors(request, &indexes);
     request.inputs.push_back(IoSpecification("ivector", indexes));
   }
   IoSpecification output_spec;
@@ -251,11 +311,11 @@ void NnetDecodableBase::DoNnetComputation(
 
   CuMatrix<BaseFloat> input_feats_cu(input_feats);
   computer.AcceptInput("input", &input_feats_cu);
-  CuMatrix<BaseFloat> ivector_feats_cu;
-  if (ivector.Dim() > 0) {
-    ivector_feats_cu.Resize(1, ivector.Dim());
-    ivector_feats_cu.Row(0).CopyFromVec(ivector);
-    computer.AcceptInput("ivector", &ivector_feats_cu);
+  CuMatrix<BaseFloat> ivectors_feats_cu;
+  if (ivectors.NumCols() > 0) {
+    ivectors_feats_cu.Resize(ivectors.NumRows(), ivectors.NumCols());
+    ivectors_feats_cu.CopyFromMat(ivectors);
+    computer.AcceptInput("ivector", &ivectors_feats_cu);
   }
   computer.Forward();
   CuMatrix<BaseFloat> cu_output;

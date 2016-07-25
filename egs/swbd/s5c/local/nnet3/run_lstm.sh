@@ -85,8 +85,12 @@ local/nnet3/run_ivector_common.sh --stage $stage \
 
 if [ $stage -le 9 ]; then
   echo "$0: creating neural net configs";
+  if [ -d "exp/nnet3/ivectors_${train_set}" ]; then
+    ivector_period=$(cat exp/nnet3/ivectors_${train_set}/ivector_period) || exit 1;
+  fi
   config_extra_opts=()
   [ ! -z "$lstm_delay" ] && config_extra_opts+=(--lstm-delay "$lstm_delay")
+  [ ! -z $ivector_period ] && config_extra_opts+=(--ivector-period $ivector_period)
   steps/nnet3/lstm/make_configs.py  "${config_extra_opts[@]}" \
     --feat-dir data/${train_set}_hires \
     --ivector-dir exp/nnet3/ivectors_${train_set} \

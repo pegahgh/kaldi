@@ -167,24 +167,31 @@ class NnetDecodableBase {
   // cached in current_log_post_.
   void EnsureFrameIsComputed(int32 subsampled_frame);
 
+  // Generates Indexes for ivectors corresponding each row of ivectors matrix.
+  // This function is called from DoNnetComputation().
+  void GenerateIndexesForIvectors(const ComputationRequest &request,
+                                  std::vector<Index> *indexes);
+
   // This function does the actual nnet computation; it is called from
   // EnsureFrameIsComputed.  Any padding at file start/end is done by
   // the caller of this function (so the input should exceed the output
   // by a suitable amount of context).  It puts its output in current_log_post_.
   void DoNnetComputation(int32 input_t_start,
                          const MatrixBase<BaseFloat> &input_feats,
-                         const VectorBase<BaseFloat> &ivector,
+                         const MatrixBase<BaseFloat> &ivectors,
                          int32 output_t_start,
                          int32 num_subsampled_frames);
 
-  // Gets the iVector that will be used for this chunk of frames, if we are
+  // Gets the iVector for the frame at frame_to_search.
+  void GetCurrentIvector(int32 frame_to_search, VectorBase<BaseFloat> *ivector);
+
+  // Gets the iVectors that will be used for this chunk of frames, if we are
   // using iVectors (else does nothing).  note: the num_output_frames is
   // interpreted as the number of t value, which in the subsampled case is not
   // the same as the number of subsampled frames (it would be larger by
   // opts_.frame_subsampling_factor).
-  void GetCurrentIvector(int32 output_t_start,
-                         int32 num_output_frames,
-                         Vector<BaseFloat> *ivector);
+  void GetIvectorsForFrames(int32 output_t_start, int32 num_output_frames,
+                            Matrix<BaseFloat> *ivectors);
 
   // called from constructor
   void CheckAndFixConfigs();
@@ -213,6 +220,10 @@ class NnetDecodableBase {
   // online_ivector_period_ helps us interpret online_ivector_feats_; it's the
   // number of frames the rows of ivector_feats are separated by.
   int32 online_ivector_period_;
+  // In the multiple ivectors case, it is the period with which ivectors are
+  // supplied for frames, so that we can dump multiple
+  // ivectors for a chunk. In the single ivector case, its value is just 0.
+  int32 ivector_period_;
 
   CachingOptimizingCompiler compiler_;
 

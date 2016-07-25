@@ -888,13 +888,21 @@ void ComputeExampleComputationRequestSimple(
   request->outputs.clear();
   inputs->clear();
 
+  int32 ivector_period = GetInputInterval(nnet, "ivector");
   std::vector<Index> input_indexes, ivector_indexes, output_indexes;
   for (int32 n = n_offset; n < n_offset + num_examples; n++) {
     for (int32 t = input_start_frame; t < input_end_frame; t++)
       input_indexes.push_back(Index(n, t, 0));
     for (int32 t = output_start_frame; t < output_end_frame; t++)
       output_indexes.push_back(Index(n, t, 0));
-    ivector_indexes.push_back(Index(n, 0, 0));
+    if (ivector_period == 0) { // case 1: single ivector for the entire chunk
+      ivector_indexes.push_back(Index(n, 0, 0));
+    } else { // case 2: multiple ivectors
+      int32 i_first = DivideRoundingDown(input_start_frame, ivector_period);
+      int32 i_last = DivideRoundingDown(input_end_frame - 1, ivector_period);
+      for (int32 i = i_first; i <= i_last; i++)
+        ivector_indexes.push_back(Index(n, i * ivector_period, 0));
+    }
   }
   request->outputs.push_back(IoSpecification("output", output_indexes));
   if (need_deriv || (Rand() % 3 == 0))

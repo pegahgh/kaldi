@@ -258,10 +258,13 @@ if [ $stage -le 2 ]; then
 fi
 
 egs_opts="--left-context=$left_context --right-context=$right_context --compress=$compress"
+egs_opts=$egs_opts${ivector_period:+" --ivector-period=$ivector_period"}
+
 
 [ -z $valid_left_context ] &&  valid_left_context=$left_context;
 [ -z $valid_right_context ] &&  valid_right_context=$right_context;
 valid_egs_opts="--left-context=$valid_left_context --right-context=$valid_right_context --compress=$compress"
+valid_egs_opts=$valid_egs_opts${ivector_period:+" --ivector-period=$ivector_period"}
 
 echo $left_context > $dir/info/left_context
 echo $right_context > $dir/info/right_context
