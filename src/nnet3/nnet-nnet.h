@@ -183,6 +183,9 @@ class Nnet {
   /// rename the node name with specific index
   void RenameNodeName(int32 node_index, std::string new_node_name);
 
+  /// add the output node with its specific input
+  void AddOutputNode(std::string new_output_name, std::string input_for_output);
+
   /// returns index associated with this component name, or -1 if no such index.
   int32 GetComponentIndex(const std::string &node_name) const;
 

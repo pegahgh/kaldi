@@ -44,11 +44,13 @@ int main(int argc, char *argv[]) {
     bool binary_write = true;
     std::string use_gpu = "yes";
     NnetTrainerOptions train_config;
-
+    std::string output_weights_str;
     ParseOptions po(usage);
     po.Register("binary", &binary_write, "Write output in binary mode");
     po.Register("use-gpu", &use_gpu,
                 "yes|no|optional|wait, only has effect if compiled with CUDA");
+    po.Register("output-weights", &output_weights_str, "output_weights[i] used to scale"
+                "the output deriv correspond to output i.");
 
     train_config.Register(&po);
 
@@ -74,8 +76,13 @@ int main(int argc, char *argv[]) {
 
     SequentialNnetExampleReader example_reader(examples_rspecifier);
 
+    std::vector<BaseFloat> output_weights;
+    if (!output_weights_str.empty())
+      SplitStringToFloats(output_weights_str, ",", true, &output_weights);
+
     for (; !example_reader.Done(); example_reader.Next())
-      trainer.Train(example_reader.Value());
+      trainer.Train(example_reader.Value(),
+                    output_weights);
 
     bool ok = trainer.PrintTotalStats();
 

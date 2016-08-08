@@ -146,7 +146,8 @@ class NnetTrainer {
               Nnet *nnet);
 
   // train on one minibatch.
-  void Train(const NnetExample &eg);
+  void Train(const NnetExample &eg,
+            std::vector<BaseFloat> output_weights=NULL);
 
   // Prints out the final stats, and return true if there was a nonzero count.
   bool PrintTotalStats() const;
@@ -154,7 +155,8 @@ class NnetTrainer {
   ~NnetTrainer();
  private:
   void ProcessOutputs(const NnetExample &eg,
-                      NnetComputer *computer);
+                      NnetComputer *computer,
+                      std::vector<BaseFloat> output_weights=NULL);
 
   const NnetTrainerOptions config_;
   Nnet *nnet_;
@@ -213,7 +215,8 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
                               bool supply_deriv,
                               NnetComputer *computer,
                               BaseFloat *tot_weight,
-                              BaseFloat *tot_objf);
+                              BaseFloat *tot_objf,
+                              BaseFloat scale = 1.0);
 
 
 

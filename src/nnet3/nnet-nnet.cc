@@ -459,6 +459,14 @@ void Nnet::RenameNodeName(int32 node_index, std::string new_node_name) {
   node_names_[node_index] = new_node_name; 
 }
 
+void Nnet::AddOutputNode(std::string new_output_name, std::string input_for_output) {
+  size_t size = node_names_.size();
+  node_names_.resize(size + 1);
+  nodes_.resize(size + 1);
+  nodes_[size].node_type == kDescriptor;
+  node_names_[size] = new_output_name;
+}
+
 int32 Nnet::GetComponentIndex(const std::string &component_name) const {
   size_t size = component_names_.size();
   for (size_t i = 0; i < size; i++)

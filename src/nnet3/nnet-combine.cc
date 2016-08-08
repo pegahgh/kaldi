@@ -422,19 +422,31 @@ double NnetCombiner::ComputeObjfAndDerivFromNnet(
   prob_computer_->Reset();
   std::vector<NnetExample>::const_iterator iter = egs_.begin(),
                                             end = egs_.end();
+  std::vector<std::string> io_names;
+  for (int32 i = 0; i < iter->io.size(); i++)
+    io_names.push_back(iter->io[i].name);
+
   for (; iter != end; ++iter)
     prob_computer_->Compute(*iter);
-  const SimpleObjectiveInfo *objf_info = prob_computer_->GetObjective("output");
-  if (objf_info == NULL)
-    KALDI_ERR << "Error getting objective info (unsuitable egs?)";
-  KALDI_ASSERT(objf_info->tot_weight > 0.0);
-  const Nnet &deriv = prob_computer_->GetDeriv();
-  VectorizeNnet(deriv, nnet_params_deriv);
-  // we prefer to deal with normalized objective functions.
-  nnet_params_deriv->Scale(1.0 / objf_info->tot_weight);
-  return objf_info->tot_objective / objf_info->tot_weight;
+  std::vector<std::string> node_names = nnet_.GetNodeNames();
+  // loop over all nodes to find the output node and get the objective
+  for (int32 node = 0; node < node_names.size(); node++) {
+    if (nnet_.IsOutputNode(node)) {
+      // compute the objective if there is output name in egs correspond to this output.
+      if (std::find(io_names.begin(), io_names.end(), node_names[node]) != io_names.end()) {
+        const SimpleObjectiveInfo *objf_info = prob_computer_->GetObjective(node_names[node]);
+        if (objf_info == NULL)
+          KALDI_ERR << "Error getting objective info (unsuitable egs?)";
+        KALDI_ASSERT(objf_info->tot_weight > 0.0);
+        const Nnet &deriv = prob_computer_->GetDeriv();
+        VectorizeNnet(deriv, nnet_params_deriv);
+        // we prefer to deal with normalized objective functions.
+        nnet_params_deriv->Scale(1.0 / objf_info->tot_weight);
+        return objf_info->tot_objective / objf_info->tot_weight;
+      }
+    }
+  }
 }
-
 
 double NnetCombiner::ComputeObjfAndDerivFromParameters(
     VectorBase<BaseFloat> &params,

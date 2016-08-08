@@ -43,7 +43,8 @@ int main(int argc, char *argv[]) {
     bool binary_write = true;
     BaseFloat learning_rate = -1;
     std::string set_nnet = "",
-      rename_node_names = "";
+      rename_node_names = "",
+      add_output_nodes = "";
     ParseOptions po(usage);
     po.Register("binary", &binary_write, "Write output in binary mode");
     po.Register("learning-rate", &learning_rate,
@@ -55,6 +56,8 @@ int main(int argc, char *argv[]) {
                 "before the learning-rate is changed.");
     po.Register("rename-node-names", &rename_node_names, "Comma-separated list of noed names need to be modified"
                 " and their new name. e.g. 'affine0/affine0-lang1,affine1/affine1-lang1'");
+    po.Register("add-output-nodes", &add_output_nodes, "Comma-separated list of output node name and its input"
+                " to add to nnet config. e.g. 'output-1/affine1,output-2/affine2'");
     
     po.Read(argc, argv);
     if (po.NumArgs() != 2) {
@@ -73,6 +76,18 @@ int main(int argc, char *argv[]) {
      
     if (learning_rate >= 0)
       SetLearningRate(learning_rate, &nnet);
+    if (!add_output_nodes.empty()) {
+      std::vector<string> output_nodes;
+      SplitStringToVector(add_output_nodes, ",", true, &output_nodes);
+      int32 num_new_outputs = output_nodes.size();
+      for (int32 ind = 0; ind < num_new_outputs; ind++) {
+        std::vector<string> add_output_name;
+        SplitStringToVector(output_nodes[ind], "/", true, &add_output_name);
+        KALDI_ASSERT(add_output_name.size() == 2);
+        //nnet.AddNodeName(add_output_name[0], add_output_name[1]);
+      }
+    }
+
     if (!rename_node_names.empty()) {
       std::vector<string> orig_names, 
         new_names;
@@ -87,10 +102,12 @@ int main(int argc, char *argv[]) {
         KALDI_ASSERT(rename_node_name.size() == 2);
         // rename node name to new node name. 
         int32 orig_node_index = nnet.GetNodeIndex(rename_node_name[0]);
-        if (orig_node_index == -1) 
-          KALDI_ERR << "No node with name " << rename_node_name[0]
+        if (orig_node_index == -1) { 
+          KALDI_LOG << "No node with name " << rename_node_name[0]
                     << " is specified in the nnet.";
-        nnet.RenameNodeName(orig_node_index, rename_node_name[1]);
+        } else {
+          nnet.RenameNodeName(orig_node_index, rename_node_name[1]);
+        }
       }
     }
 
