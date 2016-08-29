@@ -3041,6 +3041,129 @@ void LogSoftmaxComponent::Backprop(const std::string &debug_info,
   D.Scale(-1.0);                          // - exp(y) Sum(e)
   D.AddMat(1.0, E, kNoTrans);             // e - exp(y_i) Sum(e)
 }
+//
+const BaseFloat LogComponent::kLogFloor = 1.0e-10;
+
+void LogComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
+                             const CuMatrixBase<BaseFloat> &in, 
+                             CuMatrixBase<BaseFloat> *out) const { 
+  // Apllies log function (x >= epsi ? log(x) : log(epsi)).
+  out->CopyFromMat(in);
+  out->ApplyFloor(kLogFloor);
+  out->ApplyLog();
+}
+
+void LogComponent::Backprop(const std::string &debug_info,
+                            const ComponentPrecomputedIndexes *indexes,
+                            const CuMatrixBase<BaseFloat> &in_value,
+                            const CuMatrixBase<BaseFloat> &out_value,
+                            const CuMatrixBase<BaseFloat> &out_deriv,
+                            Component *to_update,
+                            CuMatrixBase<BaseFloat> *in_deriv) const {
+  if (in_deriv != NULL) {
+    CuMatrix<BaseFloat> divided_in_value(in_value), floored_in_value(in_value);
+    divided_in_value.Set(1.0);
+    floored_in_value.CopyFromMat(in_value);
+    floored_in_value.ApplyFloor(kLogFloor); // (x > epsi ? x : epsi) 
+
+    divided_in_value.DivElements(floored_in_value); // (x > epsi ? 1/x : 1/epsi) 
+    in_deriv->CopyFromMat(in_value);
+    in_deriv->Add(-1.0 * kLogFloor); // (x - epsi)
+    in_deriv->ApplyHeaviside(); // (x > epsi ? 1 : 0)
+    in_deriv->MulElements(divided_in_value); // (dy/dx: x  > epsi ? 1/x : 0)
+    in_deriv->MulElements(out_deriv);   // dF/dx = dF/dy * dy/dx
+  }
+}
+
+//
+std::string ShiftInputComponent::Info() const {
+  std::stringstream stream;
+  stream << Type() << ", input-dim=" << input_dim_
+         << ", output-dim=" << output_dim_
+         << ", max-shift=" << max_shift_;
+  return stream.str();
+}
+
+void ShiftInputComponent::Init(int32 input_dim, int32 output_dim, BaseFloat max_shift, 
+    BaseFloat rand_vol_var) {
+  input_dim_ = input_dim;
+  output_dim_ = output_dim;
+  max_shift_ = max_shift;
+  rand_vol_var_ = rand_vol_var;
+  KALDI_ASSERT(input_dim_ - output_dim_ > 0 && input_dim_ > 0);
+  KALDI_ASSERT(max_shift >= 0.0 && max_shift <= 1.0);
+  KALDI_ASSERT(rand_vol_var >= 0.0 && rand_vol_var <= 1.0);
+}
+
+void ShiftInputComponent::InitFromConfig(ConfigLine *cfl) {
+  bool ok = true;
+  int32 input_dim, output_dim;
+  BaseFloat max_shift = 1.0, rand_vol_var = 0.0;
+  ok = ok && cfl->GetValue("input-dim", &input_dim);
+  ok = ok && cfl->GetValue("output-dim", &output_dim);
+  if (cfl->GetValue("max-shift", &max_shift))
+    KALDI_ASSERT(max_shift >= 0.0 && max_shift <= 1.0);
+  if (cfl->GetValue("rand-vol-var", &rand_vol_var))
+    KALDI_ASSERT(rand_vol_var >= 0 && rand_vol_var <= 1.0);
+  Init(input_dim, output_dim, max_shift, rand_vol_var);
+}
+
+void ShiftInputComponent::Read(std::istream &is, bool binary) {
+  ExpectOneOrTwoTokens(is, binary, "<ShiftInputComponent>", "<InputDim>");
+  ReadBasicType(is, binary, &input_dim_);     
+  ExpectToken(is, binary, "<OutputDim>"); 
+  ReadBasicType(is, binary, &output_dim_); 
+  std::string token;
+  ReadToken(is, binary, &token);
+  if (token == "<MaxShift>") {
+    ReadBasicType(is, binary, &max_shift_);
+    ReadToken(is, binary, &token); 
+    if (token == "<RandVolVar>") {
+      ReadBasicType(is, binary, &rand_vol_var_);
+      ReadToken(is, binary, &token);
+    }
+  }
+  KALDI_ASSERT(token == "</ShiftInputComponent>"); 
+}
+
+void ShiftInputComponent::Write(std::ostream &os, bool binary) const {
+  WriteToken(os, binary, "<ShiftInputComponent>");
+  WriteToken(os, binary, "<InputDim>");
+  WriteBasicType(os, binary, input_dim_);
+  WriteToken(os, binary, "<OutputDim>"); 
+  WriteBasicType(os, binary, output_dim_);
+  WriteToken(os, binary, "<MaxShift>");
+  WriteBasicType(os, binary, max_shift_); 
+  WriteToken(os, binary, "<RandVolVar>"); 
+  WriteBasicType(os, binary, rand_vol_var_);  
+  WriteToken(os, binary, "</ShiftInputComponent>");
+}
+
+void ShiftInputComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
+                                    const CuMatrixBase<BaseFloat> &in, 
+                                    CuMatrixBase<BaseFloat> *out) const {
+  int32 in_out_diff = input_dim_ - output_dim_, shift = 0;
+  KALDI_ASSERT(in_out_diff > 0);
+  int32 max_shift_int = static_cast<int32>(max_shift_ * in_out_diff);
+  // Generate random shift integer value.
+  shift = RandInt(0, max_shift_int);
+  out->CopyFromMat(in.Range(0, in.NumRows(), shift, output_dim_));
+
+  BaseFloat rand_vol = (1.0 + rand_vol_var_ *  (Rand() % 2 ? -1.0 : 1.0) * RandUniform()); 
+  if (rand_vol != 0 && rand_vol != 1.0) 
+    out->Scale(rand_vol);
+}
+
+void ShiftInputComponent::Backprop(const std::string &debug_info,
+                                   const ComponentPrecomputedIndexes *indexes,
+                                   const CuMatrixBase<BaseFloat> &, 
+                                   const CuMatrixBase<BaseFloat> &,     
+                                   const CuMatrixBase<BaseFloat> &, 
+                                   Component *,  
+                                   CuMatrixBase<BaseFloat> *in_deriv) const {
+  in_deriv->SetZero();
+}
+//
 
 
 void FixedScaleComponent::Init(const CuVectorBase<BaseFloat> &scales) {

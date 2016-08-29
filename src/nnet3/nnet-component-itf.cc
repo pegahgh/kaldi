@@ -141,6 +141,10 @@ Component* Component::NewComponentOfType(const std::string &component_type) {
     ans = new StatisticsPoolingComponent();
   } else if (component_type == "ConstantFunctionComponent") {
     ans = new ConstantFunctionComponent();
+  } else if (component_type == "ShiftInputComponent") {
+    ans = new ShiftInputComponent();
+  } else if (component_type == "LogComponent") {
+    ans = new LogComponent();
   }
   if (ans != NULL) {
     KALDI_ASSERT(component_type == ans->Type());

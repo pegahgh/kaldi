@@ -96,7 +96,7 @@ struct NnetExample {
   void Swap(NnetExample *other) { io.swap(other->io); }
 
   /// Compresses any (input) features that are not sparse.
-  void Compress();
+  void Compress(int32 format = 0);
 
   /// Caution: this operator == is not very efficient.  It's only used in
   /// testing code.
