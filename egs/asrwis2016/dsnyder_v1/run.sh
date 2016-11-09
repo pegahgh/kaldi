@@ -52,7 +52,7 @@ local/xvector/prepare_xvector_feats.sh --nj 40 \
   --cmd "$train_cmd --mem 6G" \
   data/sre data/xvector_sre exp/xvector_feats/
 
-utils/fix_data_dir.sh data/xvector_sre_5k
+utils/fix_data_dir.sh data/xvector_sre
 # These files get automatically created by scripts called in local/xvector/run_sre_a1.sh, so
 # remove them if they already exist.
 rm -rf data/xvector_sre/utt2len
