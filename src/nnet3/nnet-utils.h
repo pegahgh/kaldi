@@ -33,7 +33,7 @@ namespace kaldi {
 namespace nnet3 {
 
 
-/// \file nnet-utils.h
+/// \file nnet3/nnet-utils.h
 /// This file contains some miscellaneous functions dealing with class Nnet.
 
 /// Given an nnet and a computation request, this function works out which
@@ -149,6 +149,12 @@ void ScaleNnetComponents(const Vector<BaseFloat> &scales,
 /// stored stats).
 void AddNnet(const Nnet &src, BaseFloat alpha, Nnet *dest);
 
+/// Does *dest += alpha * src for updatable components (affect nnet parameters),
+/// and *dest += scale * src for other components (affect stored stats).
+/// Here, alphas is a vector of size equal to the number of updatable components
+void AddNnetComponents(const Nnet &src, const Vector<BaseFloat> &alphas,
+                       BaseFloat scale, Nnet *dest);
+
 /// Returns the total of the number of parameters in the updatable components of
 /// the nnet.
 int32 NumParameters(const Nnet &src);
@@ -188,6 +194,63 @@ std::string SpMatrixOutputInfo(const Nnet &nnet);
 /// its input) and returns it in 'out'.
 void GetConstantOutput(const Nnet &nnet, const std::string &output_name,
       Vector<BaseFloat> *out);
+
+/// This function sets the dropout proportion in all dropout component to
+/// dropout_proportion value.
+void SetDropoutProportion(BaseFloat dropout_proportion, Nnet *nnet);
+
+/// This function finds a list of components that are never used, and outputs
+/// the integer comopnent indexes (you can use these to index
+/// nnet.GetComponentNames() to get their names).
+void FindOrphanComponents(const Nnet &nnet, std::vector<int32> *components);
+
+/// This function finds a list of nodes that are never used to compute any
+/// output, and outputs the integer node indexes (you can use these to index
+/// nnet.GetNodeNames() to get their names).
+void FindOrphanNodes(const Nnet &nnet, std::vector<int32> *nodes);
+
+
+/**
+   ReadEditConfig() reads a file with a similar-looking format to the config file
+   read by Nnet::ReadConfig(), but this consists of a sequence of operations to
+   perform on an existing network, mostly modifying components.  It's one
+   "directive" (i.e. command) per line.
+
+   The following describes the allowed commands.  Note: all patterns are like
+   UNIX globbing patterns where the only metacharacter is '*', representing zero
+   or more characters.
+
+  \verbatim
+    convert-to-fixed-affine [name=<name-pattern>]
+      Converts the given affine components to FixedAffineComponent which is not updatable.
+
+    remove-orphan-nodes [remove-orphan-inputs=(true|false)]
+      Removes orphan nodes (that are never used to compute anything).  Note:
+      remove-orphan-inputs defaults to false.
+
+    remove-orphan-components
+      Removes orphan components (those that are never used by any node).
+
+    remove-orphans [remove-orphan-inputs=(true|false)]
+      The same as calling remove-orphan-nodes and then remove-orphan-components.
+
+    set-learning-rate [name=<name-pattern>] learning-rate=<learning-rate>
+       Sets the learning rate for any updatable nodes matching the name pattern.
+
+    rename-node old-name=<old-name> new-name=<new-name>
+       Renames a node; this is a surface renaming that does not affect the structure
+       (for structural changes, use the regular config file format, not the
+       edits-config).  This is mostly useful for outputs, e.g. when doing
+       multilingual experiments.
+
+    remove-output-nodes name=<name-pattern>
+       Removes a subset of output nodes, those matching the pattern.  You cannot
+       remove internal nodes directly; instead you should use the command
+       'remove-orphans'.
+
+   \endverbatim
+*/
+void ReadEditConfig(std::istream &config_file, Nnet *nnet);
 
 } // namespace nnet3
 } // namespace kaldi

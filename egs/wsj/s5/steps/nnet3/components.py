@@ -56,14 +56,18 @@ def AddNoOpLayer(config_lines, name, input):
             'dimension': input['dimension']}
 
 def AddLdaLayer(config_lines, name, input, lda_file):
+    return AddFixedAffineLayer(config_lines, name, input, lda_file)
+
+def AddFixedAffineLayer(config_lines, name, input, matrix_file):
     components = config_lines['components']
     component_nodes = config_lines['component-nodes']
 
-    components.append('component name={0}_lda type=FixedAffineComponent matrix={1}'.format(name, lda_file))
-    component_nodes.append('component-node name={0}_lda component={0}_lda input={1}'.format(name, input['descriptor']))
+    components.append('component name={0}_fixaffine type=FixedAffineComponent matrix={1}'.format(name, matrix_file))
+    component_nodes.append('component-node name={0}_fixaffine component={0}_fixaffine input={1}'.format(name, input['descriptor']))
 
-    return {'descriptor':  '{0}_lda'.format(name),
+    return {'descriptor':  '{0}_fixaffine'.format(name),
             'dimension': input['dimension']}
+
 
 def AddBlockAffineLayer(config_lines, name, input, output_dim, num_blocks):
     components = config_lines['components']
@@ -86,22 +90,29 @@ def AddPermuteLayer(config_lines, name, input, column_map):
     return {'descriptor': '{0}_permute'.format(name),
             'dimension': input['dimension']}
 
-def AddAffineLayer(config_lines, name, input, output_dim, ng_affine_options = ""):
+def AddAffineLayer(config_lines, name, input, output_dim, ng_affine_options = "", max_change_per_component = 0.75):
     components = config_lines['components']
     component_nodes = config_lines['component-nodes']
 
-    components.append("component name={0}_affine type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input['dimension'], output_dim, ng_affine_options))
+    # Per-component max-change option
+    max_change_options = "max-change={0:.2f}".format(max_change_per_component) if max_change_per_component is not None else ''
+ 
+    components.append("component name={0}_affine type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3} {4}".format(name, input['dimension'], output_dim, ng_affine_options, max_change_options))
     component_nodes.append("component-node name={0}_affine component={0}_affine input={1}".format(name, input['descriptor']))
 
     return {'descriptor':  '{0}_affine'.format(name),
             'dimension': output_dim}
 
-def AddAffRelNormLayer(config_lines, name, input, output_dim, ng_affine_options = " bias-stddev=0 ", norm_target_rms = 1.0, self_repair_scale = None):
+def AddAffRelNormLayer(config_lines, name, input, output_dim, ng_affine_options = " bias-stddev=0 ", norm_target_rms = 1.0, self_repair_scale = None, max_change_per_component = 0.75):
     components = config_lines['components']
     component_nodes = config_lines['component-nodes']
 
+    # self_repair_scale is a constant scaling the self-repair vector computed in RectifiedLinearComponent
     self_repair_string = "self-repair-scale={0:.10f}".format(self_repair_scale) if self_repair_scale is not None else ''
-    components.append("component name={0}_affine type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input['dimension'], output_dim, ng_affine_options))
+    # Per-component max-change option
+    max_change_options = "max-change={0:.2f}".format(max_change_per_component) if max_change_per_component is not None else ''
+ 
+    components.append("component name={0}_affine type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3} {4}".format(name, input['dimension'], output_dim, ng_affine_options, max_change_options))
     components.append("component name={0}_relu type=RectifiedLinearComponent dim={1} {2}".format(name, output_dim, self_repair_string))
     components.append("component name={0}_renorm type=NormalizeComponent dim={1} target-rms={2}".format(name, output_dim, norm_target_rms))
 
@@ -111,6 +122,21 @@ def AddAffRelNormLayer(config_lines, name, input, output_dim, ng_affine_options 
 
     return {'descriptor':  '{0}_renorm'.format(name),
             'dimension': output_dim}
+
+def AddAffPnormLayer(config_lines, name, input, pnorm_input_dim, pnorm_output_dim, ng_affine_options = " bias-stddev=0 ", norm_target_rms = 1.0):
+    components = config_lines['components']
+    component_nodes = config_lines['component-nodes']
+
+    components.append("component name={0}_affine type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input['dimension'], pnorm_input_dim, ng_affine_options))
+    components.append("component name={0}_pnorm type=PnormComponent input-dim={1} output-dim={2}".format(name, pnorm_input_dim, pnorm_output_dim))
+    components.append("component name={0}_renorm type=NormalizeComponent dim={1} target-rms={2}".format(name, pnorm_output_dim, norm_target_rms))
+
+    component_nodes.append("component-node name={0}_affine component={0}_affine input={1}".format(name, input['descriptor']))
+    component_nodes.append("component-node name={0}_pnorm component={0}_pnorm input={0}_affine".format(name))
+    component_nodes.append("component-node name={0}_renorm component={0}_renorm input={0}_pnorm".format(name))
+
+    return {'descriptor':  '{0}_renorm'.format(name),
+            'dimension': pnorm_output_dim}
 
 def AddConvolutionLayer(config_lines, name, input,
                        input_x_dim, input_y_dim, input_z_dim,
@@ -124,13 +150,19 @@ def AddConvolutionLayer(config_lines, name, input,
     components = config_lines['components']
     component_nodes = config_lines['component-nodes']
 
-    conv_init_string = "component name={0}_conv type=ConvolutionComponent input-x-dim={1} input-y-dim={2} input-z-dim={3} filt-x-dim={4} filt-y-dim={5} filt-x-step={6} filt-y-step={7} input-vectorization-order={8}".format(name, input_x_dim, input_y_dim, input_z_dim, filt_x_dim, filt_y_dim, filt_x_step, filt_y_step, input_vectorization)
+    conv_init_string = ("component name={name}_conv type=ConvolutionComponent "
+                       "input-x-dim={input_x_dim} input-y-dim={input_y_dim} input-z-dim={input_z_dim} "
+                       "filt-x-dim={filt_x_dim} filt-y-dim={filt_y_dim} "
+                       "filt-x-step={filt_x_step} filt-y-step={filt_y_step} "
+                       "input-vectorization-order={vector_order}".format(name = name,
+                       input_x_dim = input_x_dim, input_y_dim = input_y_dim, input_z_dim = input_z_dim,
+                       filt_x_dim = filt_x_dim, filt_y_dim = filt_y_dim,
+                       filt_x_step = filt_x_step, filt_y_step = filt_y_step,
+                       vector_order = input_vectorization))
     if filter_bias_file is not None:
         conv_init_string += " matrix={0}".format(filter_bias_file)
-    if is_updatable:
-        conv_init_string += " is-updatable=true"
     else:
-        conv_init_string += " is-updatable=false"
+        conv_init_string += " num-filters={0}".format(num_filters)
 
     components.append(conv_init_string)
     component_nodes.append("component-node name={0}_conv_t component={0}_conv input={1}".format(name, input['descriptor']))
@@ -139,7 +171,48 @@ def AddConvolutionLayer(config_lines, name, input,
     num_y_steps = (1 + (input_y_dim - filt_y_dim) / filt_y_step)
     output_dim = num_x_steps * num_y_steps * num_filters;
     return {'descriptor':  '{0}_conv_t'.format(name),
-            'dimension': output_dim}
+            'dimension': output_dim,
+            '3d-dim': [num_x_steps, num_y_steps, num_filters],
+            'vectorization': 'zyx'}
+
+# The Maxpooling component assumes input vectorizations of type zyx
+def AddMaxpoolingLayer(config_lines, name, input,
+                      input_x_dim, input_y_dim, input_z_dim,
+                      pool_x_size, pool_y_size, pool_z_size,
+                      pool_x_step, pool_y_step, pool_z_step):
+    if input_x_dim < 1 or input_y_dim < 1 or input_z_dim < 1:
+        raise Exception("non-positive maxpooling input size ({0}, {1}, {2})".
+                 format(input_x_dim, input_y_dim, input_z_dim))
+    if pool_x_size > input_x_dim or pool_y_size > input_y_dim or pool_z_size > input_z_dim:
+        raise Exception("invalid maxpooling pool size vs. input size")
+    if pool_x_step > pool_x_size or pool_y_step > pool_y_size or pool_z_step > pool_z_size:
+        raise Exception("invalid maxpooling pool step vs. pool size")
+
+    assert(input['dimension'] == input_x_dim * input_y_dim * input_z_dim)
+    components = config_lines['components']
+    component_nodes = config_lines['component-nodes']
+
+    components.append('component name={name}_maxp type=MaxpoolingComponent '
+                      'input-x-dim={input_x_dim} input-y-dim={input_y_dim} input-z-dim={input_z_dim} '
+                      'pool-x-size={pool_x_size} pool-y-size={pool_y_size} pool-z-size={pool_z_size} '
+                      'pool-x-step={pool_x_step} pool-y-step={pool_y_step} pool-z-step={pool_z_step} '.
+                      format(name = name,
+                      input_x_dim = input_x_dim, input_y_dim = input_y_dim, input_z_dim = input_z_dim,
+                      pool_x_size = pool_x_size, pool_y_size = pool_y_size, pool_z_size = pool_z_size,
+                      pool_x_step = pool_x_step, pool_y_step = pool_y_step, pool_z_step = pool_z_step))
+
+    component_nodes.append('component-node name={0}_maxp_t component={0}_maxp input={1}'.format(name, input['descriptor']))
+
+    num_pools_x = 1 + (input_x_dim - pool_x_size) / pool_x_step;
+    num_pools_y = 1 + (input_y_dim - pool_y_size) / pool_y_step;
+    num_pools_z = 1 + (input_z_dim - pool_z_size) / pool_z_step;
+    output_dim = num_pools_x * num_pools_y * num_pools_z;
+
+    return {'descriptor':  '{0}_maxp_t'.format(name),
+            'dimension': output_dim,
+            '3d-dim': [num_pools_x, num_pools_y, num_pools_z],
+            'vectorization': 'zyx'}
+
 
 def AddSoftmaxLayer(config_lines, name, input):
     components = config_lines['components']
@@ -156,6 +229,7 @@ def AddSigmoidLayer(config_lines, name, input, self_repair_scale = None):
     components = config_lines['components']
     component_nodes = config_lines['component-nodes']
 
+    # self_repair_scale is a constant scaling the self-repair vector computed in SigmoidComponent
     self_repair_string = "self-repair-scale={0:.10f}".format(self_repair_scale) if self_repair_scale is not None else ''
     components.append("component name={0}_sigmoid type=SigmoidComponent dim={1}".format(name, input['dimension'], self_repair_string))
     component_nodes.append("component-node name={0}_sigmoid component={0}_sigmoid input={1}".format(name, input['descriptor']))
@@ -176,10 +250,12 @@ def AddOutputLayer(config_lines, input, label_delay = None, suffix=None, objecti
 
 def AddFinalLayer(config_lines, input, output_dim,
         ng_affine_options = " param-stddev=0 bias-stddev=0 ",
+        max_change_per_component = 1.5,
         label_delay=None,
         use_presoftmax_prior_scale = False,
         prior_scale_file = None,
         include_log_softmax = True,
+        add_final_sigmoid = False,
         name_affix = None,
         objective_type = "linear"):
     components = config_lines['components']
@@ -192,7 +268,7 @@ def AddFinalLayer(config_lines, input, output_dim,
 
     prev_layer_output = AddAffineLayer(config_lines,
             final_node_prefix , input, output_dim,
-            ng_affine_options)
+            ng_affine_options, max_change_per_component)
     if include_log_softmax:
         if use_presoftmax_prior_scale :
             components.append('component name={0}-fixed-scale type=FixedScaleComponent scales={1}'.format(final_node_prefix, prior_scale_file))
@@ -200,33 +276,14 @@ def AddFinalLayer(config_lines, input, output_dim,
                 prev_layer_output['descriptor']))
             prev_layer_output['descriptor'] = "{0}-fixed-scale".format(final_node_prefix)
         prev_layer_output = AddSoftmaxLayer(config_lines, final_node_prefix, prev_layer_output)
+    elif add_final_sigmoid:
+        # Useful when you need the final outputs to be probabilities
+        # between 0 and 1.
+        # Usually used with an objective-type such as "quadratic"
+        prev_layer_output = AddSigmoidLayer(config_lines, final_node_prefix, prev_layer_output)
     # we use the same name_affix as a prefix in for affine/scale nodes but as a
     # suffix for output node
     AddOutputLayer(config_lines, prev_layer_output, label_delay, suffix = name_affix, objective_type = objective_type)
-
-def AddFinalSigmoidLayer(config_lines, input, output_dim,
-        ng_affine_options = " param-stddev=0 bias-stddev=0 ",
-        label_delay=None,
-        name_affix = None,
-        objective_type = "quadratic"):
-    # Useful when you need the final outputs to be probabilities
-    # between 0 and 1.
-    # Usually used with an objective-type such as "quadratic"
-    components = config_lines['components']
-    component_nodes = config_lines['component-nodes']
-
-    if name_affix is not None:
-        final_node_prefix = 'Final-' + str(name_affix)
-    else:
-        final_node_prefix = 'Final'
-
-    prev_layer_output = AddAffineLayer(config_lines,
-            final_node_prefix , input, output_dim,
-            ng_affine_options)
-    prev_layer_output = AddSigmoidLayer(config_lines, final_node_prefix, prev_layer_output)
-    AddOutputLayer(config_lines, prev_layer_output, label_delay, suffix = name_affix, objective_type = objective_type)
-
-
 
 def AddLstmLayer(config_lines,
                  name, input, cell_dim,
@@ -237,7 +294,9 @@ def AddLstmLayer(config_lines,
                  ng_per_element_scale_options = "",
                  ng_affine_options = "",
                  lstm_delay = -1,
-                 self_repair_scale = None):
+                 self_repair_scale_nonlinearity = None,
+                 self_repair_scale_clipgradient = None,
+                 max_change_per_component = 0.75):
     assert(recurrent_projection_dim >= 0 and non_recurrent_projection_dim >= 0)
     components = config_lines['components']
     component_nodes = config_lines['component-nodes']
@@ -258,41 +317,47 @@ def AddLstmLayer(config_lines,
     else:
         add_non_recurrent_projection = True
 
-    self_repair_string = "self-repair-scale={0:.10f}".format(self_repair_scale) if self_repair_scale is not None else ''
+    # self_repair_scale_nonlinearity is a constant scaling the self-repair vector computed in derived classes of NonlinearComponent,
+    # i.e.,  SigmoidComponent, TanhComponent and RectifiedLinearComponent
+    self_repair_nonlinearity_string = "self-repair-scale={0:.10f}".format(self_repair_scale_nonlinearity) if self_repair_scale_nonlinearity is not None else ''
+    # self_repair_scale_clipgradient is a constant scaling the self-repair vector computed in ClipGradientComponent
+    self_repair_clipgradient_string = "self-repair-scale={0:.2f}".format(self_repair_scale_clipgradient) if self_repair_scale_clipgradient is not None else ''
     # Natural gradient per element scale parameters
     ng_per_element_scale_options += " param-mean=0.0 param-stddev=1.0 "
+    # Per-component max-change option
+    max_change_options = "max-change={0:.2f}".format(max_change_per_component) if max_change_per_component is not None else ''
     # Parameter Definitions W*(* replaced by - to have valid names)
     components.append("# Input gate control : W_i* matrices")
-    components.append("component name={0}_W_i-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    components.append("component name={0}_W_i-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3} {4}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options, max_change_options))
     components.append("# note : the cell outputs pass through a diagonal matrix")
-    components.append("component name={0}_w_ic type=NaturalGradientPerElementScaleComponent  dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
+    components.append("component name={0}_w_ic type=NaturalGradientPerElementScaleComponent  dim={1} {2} {3}".format(name, cell_dim, ng_per_element_scale_options, max_change_options))
 
     components.append("# Forget gate control : W_f* matrices")
-    components.append("component name={0}_W_f-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    components.append("component name={0}_W_f-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3} {4}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options, max_change_options))
     components.append("# note : the cell outputs pass through a diagonal matrix")
-    components.append("component name={0}_w_fc type=NaturalGradientPerElementScaleComponent  dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
+    components.append("component name={0}_w_fc type=NaturalGradientPerElementScaleComponent  dim={1} {2} {3}".format(name, cell_dim, ng_per_element_scale_options, max_change_options))
 
     components.append("#  Output gate control : W_o* matrices")
-    components.append("component name={0}_W_o-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    components.append("component name={0}_W_o-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3} {4}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options, max_change_options))
     components.append("# note : the cell outputs pass through a diagonal matrix")
-    components.append("component name={0}_w_oc type=NaturalGradientPerElementScaleComponent  dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
+    components.append("component name={0}_w_oc type=NaturalGradientPerElementScaleComponent  dim={1} {2} {3}".format(name, cell_dim, ng_per_element_scale_options, max_change_options))
 
     components.append("# Cell input matrices : W_c* matrices")
-    components.append("component name={0}_W_c-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    components.append("component name={0}_W_c-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3} {4}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options, max_change_options))
 
 
     components.append("# Defining the non-linearities")
-    components.append("component name={0}_i type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_string))
-    components.append("component name={0}_f type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_string))
-    components.append("component name={0}_o type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_string))
-    components.append("component name={0}_g type=TanhComponent dim={1} {2}".format(name, cell_dim, self_repair_string))
-    components.append("component name={0}_h type=TanhComponent dim={1} {2}".format(name, cell_dim, self_repair_string))
+    components.append("component name={0}_i type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
+    components.append("component name={0}_f type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
+    components.append("component name={0}_o type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
+    components.append("component name={0}_g type=TanhComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
+    components.append("component name={0}_h type=TanhComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
 
     components.append("# Defining the cell computations")
     components.append("component name={0}_c1 type=ElementwiseProductComponent input-dim={1} output-dim={2}".format(name, 2 * cell_dim, cell_dim))
     components.append("component name={0}_c2 type=ElementwiseProductComponent input-dim={1} output-dim={2}".format(name, 2 * cell_dim, cell_dim))
     components.append("component name={0}_m type=ElementwiseProductComponent input-dim={1} output-dim={2}".format(name, 2 * cell_dim, cell_dim))
-    components.append("component name={0}_c type=ClipGradientComponent dim={1} clipping-threshold={2} norm-based-clipping={3} ".format(name, cell_dim, clipping_threshold, norm_based_clipping))
+    components.append("component name={0}_c type=ClipGradientComponent dim={1} clipping-threshold={2} norm-based-clipping={3} {4}".format(name, cell_dim, clipping_threshold, norm_based_clipping, self_repair_clipgradient_string))
 
     # c1_t and c2_t defined below
     component_nodes.append("component-node name={0}_c_t component={0}_c input=Sum({0}_c1_t, {0}_c2_t)".format(name))
@@ -330,8 +395,8 @@ def AddLstmLayer(config_lines,
     # add the recurrent connections
     if (add_recurrent_projection and add_non_recurrent_projection):
         components.append("# projection matrices : Wrm and Wpm")
-        components.append("component name={0}_W-m type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, cell_dim, recurrent_projection_dim + non_recurrent_projection_dim, ng_affine_options))
-        components.append("component name={0}_r type=ClipGradientComponent dim={1} clipping-threshold={2} norm-based-clipping={3} ".format(name, recurrent_projection_dim, clipping_threshold, norm_based_clipping))
+        components.append("component name={0}_W-m type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3} {4}".format(name, cell_dim, recurrent_projection_dim + non_recurrent_projection_dim, ng_affine_options, max_change_options))
+        components.append("component name={0}_r type=ClipGradientComponent dim={1} clipping-threshold={2} norm-based-clipping={3} {4}".format(name, recurrent_projection_dim, clipping_threshold, norm_based_clipping, self_repair_clipgradient_string))
         component_nodes.append("# r_t and p_t")
         component_nodes.append("component-node name={0}_rp_t component={0}_W-m input={0}_m_t".format(name))
         component_nodes.append("dim-range-node name={0}_r_t_preclip input-node={0}_rp_t dim-offset=0 dim={1}".format(name, recurrent_projection_dim))
@@ -341,8 +406,8 @@ def AddLstmLayer(config_lines,
 
     elif add_recurrent_projection:
         components.append("# projection matrices : Wrm")
-        components.append("component name={0}_Wrm type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, cell_dim, recurrent_projection_dim, ng_affine_options))
-        components.append("component name={0}_r type=ClipGradientComponent dim={1} clipping-threshold={2} norm-based-clipping={3} ".format(name, recurrent_projection_dim, clipping_threshold, norm_based_clipping))
+        components.append("component name={0}_Wrm type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3} {4}".format(name, cell_dim, recurrent_projection_dim, ng_affine_options, max_change_options))
+        components.append("component name={0}_r type=ClipGradientComponent dim={1} clipping-threshold={2} norm-based-clipping={3} {4}".format(name, recurrent_projection_dim, clipping_threshold, norm_based_clipping, self_repair_clipgradient_string))
         component_nodes.append("# r_t")
         component_nodes.append("component-node name={0}_r_t_preclip component={0}_Wrm input={0}_m_t".format(name))
         component_nodes.append("component-node name={0}_r_t component={0}_r input={0}_r_t_preclip".format(name))
@@ -350,7 +415,7 @@ def AddLstmLayer(config_lines,
         output_dim = recurrent_projection_dim
 
     else:
-        components.append("component name={0}_r type=ClipGradientComponent dim={1} clipping-threshold={2} norm-based-clipping={3} ".format(name, cell_dim, clipping_threshold, norm_based_clipping))
+        components.append("component name={0}_r type=ClipGradientComponent dim={1} clipping-threshold={2} norm-based-clipping={3} {4}".format(name, cell_dim, clipping_threshold, norm_based_clipping, self_repair_clipgradient_string))
         component_nodes.append("component-node name={0}_r_t component={0}_r input={0}_m_t".format(name))
         output_descriptor = '{0}_r_t'.format(name)
         output_dim = cell_dim
@@ -359,3 +424,41 @@ def AddLstmLayer(config_lines,
             'descriptor': output_descriptor,
             'dimension':output_dim
             }
+
+def AddBLstmLayer(config_lines,
+                  name, input, cell_dim,
+                  recurrent_projection_dim = 0,
+                  non_recurrent_projection_dim = 0,
+                  clipping_threshold = 1.0,
+                  norm_based_clipping = "false",
+                  ng_per_element_scale_options = "",
+                  ng_affine_options = "",
+                  lstm_delay = [-1,1],
+                  self_repair_scale_nonlinearity = None,
+                  self_repair_scale_clipgradient = None,
+                  max_change_per_component = 0.75):
+    assert(len(lstm_delay) == 2 and lstm_delay[0] < 0 and lstm_delay[1] > 0)
+    output_forward = AddLstmLayer(config_lines, "{0}_forward".format(name), input, cell_dim,
+                                  recurrent_projection_dim, non_recurrent_projection_dim,
+                                  clipping_threshold, norm_based_clipping,
+                                  ng_per_element_scale_options, ng_affine_options,
+                                  lstm_delay = lstm_delay[0],
+                                  self_repair_scale_nonlinearity = self_repair_scale_nonlinearity,
+                                  self_repair_scale_clipgradient = self_repair_scale_clipgradient,
+                                  max_change_per_component = max_change_per_component)
+    output_backward = AddLstmLayer(config_lines, "{0}_backward".format(name), input, cell_dim,
+                                   recurrent_projection_dim, non_recurrent_projection_dim,
+                                   clipping_threshold, norm_based_clipping,
+                                   ng_per_element_scale_options, ng_affine_options,
+                                   lstm_delay = lstm_delay[1],
+                                   self_repair_scale_nonlinearity = self_repair_scale_nonlinearity,
+                                   self_repair_scale_clipgradient = self_repair_scale_clipgradient,
+                                   max_change_per_component = max_change_per_component)
+    output_descriptor = 'Append({0}, {1})'.format(output_forward['descriptor'], output_backward['descriptor'])
+    output_dim = output_forward['dimension'] + output_backward['dimension']
+
+    return {
+            'descriptor': output_descriptor,
+            'dimension':output_dim
+            }
+ 

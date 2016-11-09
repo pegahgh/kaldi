@@ -96,6 +96,10 @@ if [ ! -f $data/utt2len ]; then
   feat-to-len scp:$data/feats.scp ark,t:$data/utt2len || exit 1;
 fi
 
+if [ ! -f $data/utt2reco ]; then
+  awk '{print $1, $1}' $data/utt2spk > $data/utt2reco
+fi
+
 frame_shift=$(utils/data/get_frame_shift.sh $data) || exit 1;
 feat_dim=$(feat-to-dim scp:$data/feats.scp -) || exit 1
 

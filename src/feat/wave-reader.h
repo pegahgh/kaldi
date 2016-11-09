@@ -99,6 +99,11 @@ class WaveData {
     samp_freq_ = 0.0;
   }
 
+  void Swap(WaveData *other) {
+    data_.Swap(&(other->data_));
+    std::swap(samp_freq_, other->samp_freq_);
+  }
+
  private:
   static const uint32 kBlockSize = 1024 * 1024;  // Use 1M bytes.
   Matrix<BaseFloat> data_;
@@ -113,8 +118,11 @@ class WaveData {
 };
 
 
-// Holder class for .wav files that enables us to read (but not write)
-// .wav files. c.f. util/kaldi-holder.h
+// Holder class for .wav files that enables us to read (but not write) .wav
+// files. c.f. util/kaldi-holder.h we don't use the KaldiObjectHolder template
+// because we don't want to check for the \0B binary header. We could have faked
+// it by pretending to read in the wave data in text mode after failing to find
+// the \0B header, but that would have been a little ugly.
 class WaveHolder {
  public:
   typedef WaveData T;
@@ -127,8 +135,8 @@ class WaveHolder {
       t.Write(os);  // throws exception on failure.
       return true;
     } catch (const std::exception &e) {
-      KALDI_WARN << "Exception caught in WaveHolder object (writing).";
-      if (!IsKaldiError(e.what())) { std::cerr << e.what(); }
+      KALDI_WARN << "Exception caught in WaveHolder object (writing). "
+                 << e.what();
       return false;  // write failure.
     }
   }
@@ -154,18 +162,26 @@ class WaveHolder {
       t_.Read(is);  // throws exception on failure.
       return true;
     } catch (const std::exception &e) {
-      KALDI_WARN << "Exception caught in WaveHolder object (reading).";
-      if (!IsKaldiError(e.what())) { std::cerr << e.what(); }
+      KALDI_WARN << "Exception caught in WaveHolder object (reading). "
+                 << e.what();
       return false;  // write failure.
     }
+  }
+
+  void Swap(WaveHolder *other) {
+    t_.Swap(&(other->t_));
+  }
+
+  bool ExtractRange(const WaveHolder &other, const std::string &range) {
+    KALDI_ERR << "ExtractRange is not defined for this type of holder.";
+    return false;
   }
 
  private:
   T t_;
 };
 
-
-// this like like WaveHolder but when you just want the metadata-
+// This is like WaveHolder but when you just want the metadata-
 // it leaves the actual data undefined, it doesn't read it.
 class WaveInfoHolder {
  public:
@@ -197,12 +213,20 @@ class WaveInfoHolder {
       t_.Read(is, WaveData::kLeaveDataUndefined);  // throws exception on failure.
       return true;
     } catch (const std::exception &e) {
-      KALDI_WARN << "Exception caught in WaveHolder object (reading).";
-      if (!IsKaldiError(e.what())) { std::cerr << e.what(); }
+      KALDI_WARN << "Exception caught in WaveHolder object (reading). "
+                 << e.what();
       return false;  // write failure.
     }
   }
 
+  void Swap(WaveInfoHolder *other) {
+    t_.Swap(&(other->t_));
+  }
+
+  bool ExtractRange(const WaveInfoHolder &other, const std::string &range) {
+    KALDI_ERR << "ExtractRange is not defined for this type of holder.";
+    return false;
+  }
  private:
   T t_;
 };

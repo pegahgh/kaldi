@@ -267,6 +267,8 @@ def RandomChunkLength():
 def DeterministicChunkLength(archive_id):
   if args.max_frames_per_chunk == args.min_frames_per_chunk:
     return args.max_frames_per_chunk
+  elif args.num_archives == 1:
+    return int(args.max_frames_per_chunk);
   else:
     return int(math.pow(float(args.max_frames_per_chunk) /
                      args.min_frames_per_chunk, float(archive_id) /
