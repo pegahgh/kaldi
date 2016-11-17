@@ -149,7 +149,7 @@ def RandomUttAtLeastThisLong(min_length):
 # [min-frames-per-chunk, max-frames-per-chunk], but distributed log-uniform.
 def RandomChunkLength():
     log_value = (math.log(args.min_frames_per_chunk) +
-                 random.random() * math.log(args.max_frames_per_chunk /
+                 random.random() * math.log(float(args.max_frames_per_chunk) /
                                             args.min_frames_per_chunk))
     ans = int(math.exp(log_value) + 0.45)
     return ans
