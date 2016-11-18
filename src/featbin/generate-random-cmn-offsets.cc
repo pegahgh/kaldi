@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
         "by taking the centered covariance of the speaker or pseudo-speaker means \n"
         " and use this times some constant to generate random CMN offsets to be applied \n"
         " to the features. \n"
-        "Usage: generate-random-cmn-offsets [options] <cmn-archive-in> <cmn-offset-archive-out>\n"
+        "Usage: generate-random-cmn-offsets [options] <spk2utt> <cmn-archive-in> <cmn-offset-archive-out>\n"
         "e.g.: generate-random-cmn-offsets --srand=0 --num-cmn-offsets=5 --cmn-offset-scale=0.5 \n"
         " ark:data/train/spk2utt scp:data/train/feats.scp ark,scp:cmn_offset_per_spk.ark,cmn_offset_per_spk.scp \n";
     ParseOptions po(usage);
@@ -135,9 +135,9 @@ int main(int argc, char *argv[]) {
       for (size_t i = 0; i < uttlist.size(); i++) {
         std::string utt = uttlist[i];
         if (!feat_reader.HasKey(utt)) {
-            KALDI_WARN << "Did not find features for utterance " << utt;
-            num_err++;
-            continue;
+          KALDI_WARN << "Did not find features for utterance " << utt;
+          num_err++;
+          continue;
         }
         const Matrix<BaseFloat> &feats = feat_reader.Value(utt);
         // Initialize local stat to accumulate stats per speaker

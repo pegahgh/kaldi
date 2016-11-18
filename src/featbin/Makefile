@@ -16,7 +16,7 @@ BINFILES = compute-mfcc-feats compute-plp-feats compute-fbank-feats \
     compute-and-process-kaldi-pitch-feats modify-cmvn-stats wav-copy \
     wav-reverberate append-vector-to-feats detect-sinusoids shift-feats \
     concat-feats append-post-to-feats post-to-feats \
-    generate-random-cmn-offsets
+    generate-random-cmn-offsets generate-random-per-frame-offsets
 
 OBJFILES =
 
