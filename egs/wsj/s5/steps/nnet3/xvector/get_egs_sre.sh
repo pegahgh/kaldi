@@ -27,6 +27,7 @@ cmd=run.pl
 # each of length randomly chosen between $min_frames_per_eg and $max_frames_per_eg.
 # (however the lengths do not differ within the archives, to avoid triggering
 # excessive recompilation of computation graphs).
+frame_shift=0.01
 min_frames_per_chunk=50
 max_frames_per_chunk=300
 frames_per_iter=10000000 # have this many frames per archive.
@@ -100,7 +101,6 @@ if [ ! -f $data/utt2reco ]; then
   awk '{print $1, $1}' $data/utt2spk > $data/utt2reco
 fi
 
-frame_shift=$(utils/data/get_frame_shift.sh $data) || exit 1;
 feat_dim=$(feat-to-dim scp:$data/feats.scp -) || exit 1
 
 mkdir -p $dir/info $dir/info $dir/temp
