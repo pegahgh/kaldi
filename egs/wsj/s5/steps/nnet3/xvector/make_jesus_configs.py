@@ -396,7 +396,7 @@ print('output-node name=output input=x-final-scale', file=f)
 s_dim = ((args.output_dim)*(args.output_dim+1))/2
 
 print('component name=x-s type=ConstantFunctionComponent input-dim={0} output-dim={1} '
-      'output-mean=0 output-stddev=0 '.format(
+      'output-mean=1 output-stddev=0 init-diag-spmat=true'.format(
             args.feat_dim, s_dim), file=f)
 print('component-node name=x-s component=x-s input=IfDefined(input)',
       file=f)
