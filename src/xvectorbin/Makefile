@@ -9,7 +9,8 @@ LDLIBS += $(CUDA_LDLIBS)
 BINFILES = nnet3-xvector-get-egs nnet3-xvector-compute-prob \
            nnet3-xvector-show-progress nnet3-xvector-train \
            nnet3-xvector-compute nnet3-xvector-scoring nnet3-xvector-get-egs-sre \
-           nnet3-xvector-get-egs-sre-subsample nnet3-xvector-compute-simple
+           nnet3-xvector-get-egs-sre-subsample nnet3-xvector-compute-simple \
+           nnet3-xvector-signal-perturb-egs
 
 OBJFILES =
 
@@ -21,7 +22,7 @@ TESTFILES =
 ADDLIBS = ../xvector/kaldi-xvector.a ../nnet3/kaldi-nnet3.a ../gmm/kaldi-gmm.a \
          ../decoder/kaldi-decoder.a ../lat/kaldi-lat.a ../hmm/kaldi-hmm.a  \
          ../transform/kaldi-transform.a ../tree/kaldi-tree.a  \
-         ../thread/kaldi-thread.a ../cudamatrix/kaldi-cudamatrix.a \
+         ../thread/kaldi-thread.a ../feat/kaldi-feat.a ../cudamatrix/kaldi-cudamatrix.a \
          ../matrix/kaldi-matrix.a ../fstext/kaldi-fstext.a \
          ../util/kaldi-util.a ../base/kaldi-base.a
 
