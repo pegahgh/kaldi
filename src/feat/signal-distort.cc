@@ -23,9 +23,8 @@
 
 namespace kaldi {
 
-// randomly disturb the input signal using a band-pass filter with no zeros.
-void PerturbXvectorSignal::ComputeAndApplyRandDistortion(const MatrixBase<BaseFloat> &input_egs,
-                                                    Matrix<BaseFloat> *perturb_egs) {
+void ComputeAndApplyRandDistortion(const MatrixBase<BaseFloat> &input_egs,
+                                   Matrix<BaseFloat> *perturb_egs) {
   // Generate impluse response |H(w)| using nonzero random sequence and smooth them 
   // using moving-average window with small window size.
   // For simplicity, assume zero-phase response and H(w) = |H(w)|.
@@ -35,24 +34,16 @@ void PerturbXvectorSignal::ComputeAndApplyRandDistortion(const MatrixBase<BaseFl
 
 }
 
-// Stretches the time axis for input egs without fixing the pitch value.
-// It changes the speed and duration of the input signal without fixing pitch.
-// The output  y w.r.t input x is going to be y(t - offset) = x(stretch * (t - offset)),
-// where offset is the time index which the signal is stretches along that and the input
-// and output are the same for t = offset.
-// ArbitraryResample class is used to generate resampled output for different time-stretches.
-// The output y is the stretched form of the input, x, and stretch value is randomely generated
-// between [1 - max_stretch, 1 + max_stretch].
-// y[(m - n + 2 * t)/2] = x[(1 + stretch) * (m - n + 2 * t)/2] for t = 0,..,n   
-void PerturbXvectorSignal::TimeStretch(const MatrixBase<BaseFloat> &input_egs,  
-                                       Matrix<BaseFloat> *perturb_egs) {
+void TimeStretch(const MatrixBase<BaseFloat> &input_egs, 
+                 BaseFloat max_time_stretch,
+                 Matrix<BaseFloat> *perturb_egs) {
   Matrix<BaseFloat> in_mat(input_egs), 
     out_mat(perturb_egs->NumRows(), perturb_egs->NumCols());
   int32 input_dim = input_egs.NumCols(), 
     dim = perturb_egs->NumCols();
   Vector<BaseFloat> samp_points_secs(dim);
   BaseFloat samp_freq = 2000, 
-    max_stretch = opts_.max_time_stretch;
+    max_stretch = max_time_stretch;
   // we stretch the middle part of the example and the input should be expanded
   // by extra frame to be larger than the output length => s * (m+n)/2 < m.
   // y((m - n + 2 * t)/2) = x(s * (m - n + 2 * t)/2) for t = 0,..,n 

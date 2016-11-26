@@ -40,13 +40,13 @@ struct XvectorPerturbOptions {
   BaseFloat max_shift; 
   BaseFloat max_time_stretch;
   int32 frame_dim;
-  bool negation; 
+  int32 negation_prop; 
   bool rand_distort;
   std::string noise_egs;
   XvectorPerturbOptions(): max_shift(0.2),
                            max_time_stretch(0.2),
                            frame_dim(80),
-                           negation(false),
+                           negation_prop(0.0),
                            rand_distort(false) { }
   void Register(OptionsItf *opts) { 
     opts->Register("max-shift", &max_shift, "Maximum random shift relative"
@@ -55,7 +55,7 @@ struct XvectorPerturbOptions {
                    "Max speed perturbation applied on egs.");
     opts->Register("frame-dim", &frame_dim,
                    "The numebr of samples in input frame as product of frame_length by samp_freq.");
-    opts->Register("negation", &negation, "If true, the input value is negated randomly.");
+    opts->Register("negation-prop", &negation_prop, "This proportion of the input value is randomly negated.");
     opts->Register("noise-egs", &noise_egs, "If supplied, the additive noise is added to input signal.");
     opts->Register("rand_distort", &rand_distort, "If true, the signal is slightly changes"
                    "using some designed FIR filter with no zeros.");
@@ -66,15 +66,28 @@ class PerturbXvectorSignal {
  public:
   PerturbXvectorSignal(XvectorPerturbOptions opts): opts_(opts) { };
 
-  void ComputeAndApplyRandDistortion(const MatrixBase<BaseFloat> &input_egs,
-                                     Matrix<BaseFloat> *perturb_egs);
-
-  void TimeStretch(const MatrixBase<BaseFloat> &input_egs,
-                   Matrix<BaseFloat> *perturb_egs);
-
+  void ApplyDistortion(const MatrixBase<BaseFloat> &input_egs,
+                       Matrix<BaseFloat> *perturb_egs);
  private:
   XvectorPerturbOptions opts_;
 };
+
+// randomly disturb the input signal using a band-pass filter with no zeros.
+void ComputeAndApplyRandDistortion(const MatrixBase<BaseFloat> &input_egs,
+                                   Matrix<BaseFloat> *perturb_egs);
+
+// Stretches the time axis for input egs without fixing the pitch value.
+// It changes the speed and duration of the input signal without fixing pitch.
+// The output  y w.r.t input x is going to be y(t - offset) = x(stretch * (t - offset)),
+// where offset is the time index which the signal is stretches along that and the input
+// and output are the same for t = offset.
+// ArbitraryResample class is used to generate resampled output for different time-stretches.
+// The output y is the stretched form of the input, x, and stretch value is randomely generated
+// between [1 - max_stretch, 1 + max_stretch].
+// y[(m - n + 2 * t)/2] = x[(1 + stretch) * (m - n + 2 * t)/2] for t = 0,..,n   
+void TimeStretch(const MatrixBase<BaseFloat> &input_egs,
+                 BaseFloat max_time_stretch,
+                 Matrix<BaseFloat> *perturb_egs);
 
 } // end of namespace kaldi
 #endif // KALDI_SIGNAL_DISTORT_H_
