@@ -20,7 +20,7 @@ get_egs_stage=-10
 speed_perturb=true
 dir=exp/chain/tdnn_7h  # Note: _sp will get added to this if $speed_perturb == true.
 decode_iter=
-
+dropout_schedule=
 # training options
 num_epochs=4
 initial_effective_lrate=0.001
@@ -178,6 +178,7 @@ if [ $stage -le 13 ]; then
     --trainer.optimization.initial-effective-lrate $initial_effective_lrate \
     --trainer.optimization.final-effective-lrate $final_effective_lrate \
     --trainer.max-param-change $max_param_change \
+    --trainer.dropout-schedule $dropout_schedule \
     --cleanup.remove-egs $remove_egs \
     --feat-dir data/${train_set}_hires \
     --tree-dir $treedir \
@@ -204,7 +205,7 @@ if [ $stage -le 15 ]; then
       (
       steps/nnet3/decode.sh --acwt 1.0 --post-decode-acwt 10.0 \
           --nj 50 --cmd "$decode_cmd" $iter_opts \
-          --online-ivector-dir exp/nnet3/ivectors_${decode_set} \
+          --online-ivector-dir exp/nnet3/ivectors_${decode_set}_dan \
           $graph_dir data/${decode_set}_hires $dir/decode_${decode_set}${decode_iter:+_$decode_iter}_${decode_suff} || exit 1;
       if $has_fisher; then
           steps/lmrescore_const_arpa.sh --cmd "$decode_cmd" \
