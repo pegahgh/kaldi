@@ -127,7 +127,7 @@ if [ $stage -le 12 ]; then
   # please note that it is important to have input layer with the name=input
   # as the layer immediately preceding the fixed-affine-layer to enable
   # the use of short notation for the descriptor
-  fixed-affine-layer name=lda input=Append(-1,0,1,ReplaceIndex(ivector, t, 0)) affine-transform-file=$dir/stage1/configs/lda.mat
+  fixed-affine-layer name=lda input=Append(input@-1,input,input@1,ReplaceIndex(ivector, t, 0)) affine-transform-file=$dir/stage1/configs/lda.mat
 
   # the first splicing is moved before the lda layer, so no splicing here
   relu-renorm-layer name=tdnn1 dim=625
@@ -155,15 +155,15 @@ if [ $stage -le 12 ]; then
   output-layer name=output-xent dim=$num_targets learning-rate-factor=$learning_rate_factor max-change=1.5
 
 EOF
-  steps/nnet3/xconfig_to_configs.py --xconfig-file $dir/stage1/configs/network.xconfig --config-dir $dir/stage1/configs/
+  steps/nnet3/xconfig_to_configs.py --xconfig-file $dir/stage1/configs/network.xconfig \
+    --config-dir $dir/stage1/configs/
 
   echo "$0: creating neural net configs using the xconfig parser for sibling network";
   sibling_dim=200
+  regressor_scale=$[1/$sibling_dim]
   mkdir -p $dir/stage2/configs
   cat <<EOF > $dir/stage2/configs/network.xconfig
-  input dim=100 name=ivector
-  input dim=40 name=input
-  fixed-affine-layer name=lda-sibling input=Append(-1,0,1,ReplaceIndex(ivector, t, 0)) affine-transform-file=$dir/stage2/configs/lda.mat
+  fixed-affine-layer name=lda-sibling input=Append(input@-1,input,input@1,ReplaceIndex(ivector, t, 0)) affine-transform-file=$dir/stage2/configs/lda.mat
 
   # the first splicing is moved before the lda layer, so no splicing here
   relu-renorm-layer name=tdnn1-sibling dim=$sibling_dim
@@ -181,12 +181,15 @@ EOF
   relu-renorm-layer name=prefinal-xent-sibling input=tdnn7-sibling dim=$sibling_dim target-rms=0.5
   output-layer name=output-xent-sibling dim=$num_targets learning-rate-factor=$learning_rate_factor max-change=1.5
 
-  ## adding regularizer outputs to sibling network configs.
-  regressor-layer name=regressor-1 input1=tdnn1 input2=tdnn1-sibling add-regressor=true learning-rate-factor=$regressor_learning_rate_factor max-change=1.5
+  ## adding the regressor outputs to the sibling network configs.
+  relu-renorm-layer name=tdnn2-regressor input=tdnn2 dim=$sibling_dim
+  regressor-layer name=regressor-2 input1=tdnn2-regressor input2=tdnn2-sibling objective-type=linear max-change=1.5 dim=$sibling_dim
+  #regressor-scale-file=$dir/stage2/regressor_scale.vec supervision-type=unsupervised
 EOF
-  steps/nnet3/xconfig_to_configs.py --xconfig-file $dir/stage2/configs/network.xconfig --config-dir $dir/stage2/configs/
-
+  steps/nnet3/xconfig_to_configs.py --aux-xconfig-file $dir/stage1/configs/network.xconfig \
+    --xconfig-file $dir/stage2/configs/network.xconfig --config-dir $dir/stage2/configs/
 fi
+exit 1;
 
 if [ $stage -le 13 ]; then
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $dir/egs/storage ]; then

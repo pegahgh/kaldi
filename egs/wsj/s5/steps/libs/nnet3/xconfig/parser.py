@@ -53,19 +53,20 @@ def xconfig_line_to_object(config_line, prev_layers = None):
     except Exception as e:
         print("***Exception caught while parsing the following xconfig line:\n"
               "*** {0}".format(config_line), file=sys.stderr)
-        raise e
+        raise
 
 # This function reads an xconfig file and returns it as a list of layers
 # (usually we use the variable name 'all_layers' elsewhere for this).
 # It will die if the xconfig file is empty or if there was
 # some error parsing it.
-def read_xconfig_file(xconfig_filename):
+def read_xconfig_file(xconfig_filename, all_layers = None):
     try:
         f = open(xconfig_filename, 'r')
     except Exception as e:
         sys.exit("{0}: error reading xconfig file '{1}'; error was {2}".format(
             sys.argv[0], xconfig_filename, repr(e)))
-    all_layers = []
+    if all_layers is None:
+        all_layers = []
     while True:
         line = f.readline()
         if line == '':

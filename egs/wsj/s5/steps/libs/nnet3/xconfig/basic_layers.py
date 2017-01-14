@@ -952,24 +952,139 @@ class XconfigRegressorLayer(XconfigLayerBase):
                        'max-change' : 1.5,
                        'param-stddev' : 0.0,
                        'bias-stddev'  : 0.0,
-                       'scale' : 1.0,
+                       'regressor-scale-file' : '',
                        'objective-type' : 'linear',
-                       'supervision-type' : 'unsupervised'
+                       'supervision-type' : 'unsupervised',
+                       'output-delay' : 0
                       }
 
     def check_configs(self):
 
+        if self.config['dim'] <= -1:
+            raise RuntimeError("In output-layer, dim have invalid value {0}"
+                               "".format(self.config['dim']))
+        if self.config['objective-type'] != 'linear' and \
+                self.config['objective_type'] != 'quadratic':
+            raise RuntimeError("In output-layer, objective-type has"
+                                " invalid value {0}"
+                                "".format(self.config['objective-type']))
+        if self.config['supervision-type'] != 'unsupervised' and \
+                self.config['supervision-type'] != 'supervised':
+             raise RuntimeError("In output-layer, supervision-type has"
+                                " invalud value {0}"
+                                "".format(self.config['supervision-type']))
+        if self.config['learning-rate-factor'] <= 0.0:
+            raise RuntimeError("In output-layer, learning-rate-factor has"
+                                " invalid value {0}"
+                                "".format(self.config['learning-rate-factor']))
+
     def auxiliary_outputs(self):
 
-      return []
+        return []
+    def get_input_descriptor_names(self):
+
+        return ['input1','input2']
 
     def output_name(self, auxiliary_outputs = None):
 
+        # Note: nodes of type output-node in nnet3 may not be accessed in
+        # Descriptors, so calling this with auxiliary_outputs=None doesn't
+        # make sense.  But it might make sense to make the output of the softmax
+        # layer and/or the output of the affine layer available as inputs to
+        # other layers, in some circumstances.
+        # we'll implement that when it's needed.
+        raise RuntimeError("Outputs of output-layer may not be used by other"
+                            " layers")
 
     def output_dim(self, auxiliary_output = None):
 
+        # see comment in output_name().
+        raise RuntimeError("Outputs of output-layer may not be used by other"
+                            " layers")
     def get_full_config(self):
 
+        ans = []
+
+        descriptor_final_string1 = self.descriptors['input1']['final-string']
+        input_dim1 = self.descriptors['input1']['dim']
+        descriptor_final_string2 = self.descriptors['input2']['final-string']
+        input_dim2 = self.descriptors['input2']['dim']
+        output_dim = self.config['dim']
+        objective_type = self.config['objective-type']
+        supervision_type = self.config['supervision-type']
+        learning_rate_factor = self.config['learning-rate-factor']
+        regressor_scale_file = self.config['regressor-scale-file']
+        param_stddev = self.config['param-stddev']
+        bias_stddev = self.config['bias-stddev']
+        output_delay = self.config['output-delay']
+        max_change = self.config['max-change']
+        # Note: If objective-type is linear the
+        # output is input1.input2  and for quadratic objective
+        # the output is 0.5(input1-input2).
+        assert(input_dim1 == input_dim2)
+        assert(output_dim == input_dim1)
+        for config_name in [ 'ref', 'final' ]:
+            if objective_type == 'linear':
+                line = ('component name={0}.regressor.sum'
+                        ' type=ElementwiseProductComponent'
+                        ' input-dim={1} output-dim={2}'
+                        ''.format(self.name, 2*input_dim1, input_dim1))
+                ans.append((config_name, line))
+
+                line = ('component-node name={0}.regressor.sum'
+                        ' component={0}.regressor.sum'
+                        ' input=Append({1}, {2})'
+                        ''.format(self.name, descriptor_final_string1,
+                                  descriptor_final_string2))
+                ans.append((config_name, line))
+            else:
+                # For quadratic objective, the output is 0.5(-input1+input2)^2
+                negate_file_str = open('negate.vec','w')
+                print("[ {0} ]".format((-1 for  i in  range(input_dim1))),
+                      file=negate_file_str)
+                line = ('component name={0}.negate_regressor_input'
+                        ' type=FixedScaleComponent scales=negate.vec'
+                        ''.format(self.name))
+                ans.append((config_name, line))
+                line = ('component-node name={0}.negate_regressor_input'
+                        ' component={0}.negate_regressor_input'
+                        ' input={1}'
+                        ''.format(self.name, descriptor_final_string2))
+                ans.append((config_name, line))
+
+                line = ('component name={0}.regressor.sum'
+                        ' type=NoOpComponent dim={1}'
+                        ''.format(self.name, input_dim1))
+                ans.append((config_name, line))
+                line = ('component-node name={0}.regressor.sum'
+                        ' component={0}.regressor.sum'
+                        ' input=Sum({0}.negate_regressor_input, {1})'
+                        ''.format(self.name, descriptor_final_string2))
+                ans.append((config_name, line))
+
+            cur_node = '{0}.regressor.sum'.format(self.name)
+
+            if regressor_scale_file is not '' :
+                line = ('component name={0}.scaled.regressor'
+                        ' type=FixedScaleComponent scales={1}'
+                        ''.format(self.name, regressor_scale_file))
+                ans.append((config_name, line))
+                line = ('component-node name={0}.scaled.regressor'
+                        ' component={0}.scaled.regressor'
+                        ' input={0}.regressor.sum'
+                        ''.format(self.name))
+                ans.append((config_name, line))
+                cur_node = '{0}.scaled.regressor'.format(self.name)
+
+            if output_delay != 0:
+                cur_node = 'Offset({0}, {1})'.format(cur_node, output_delay)
+
+            line = ('output-node name={0} input={1} objective={2}'
+                    ''.format(self.name, cur_node, objective_type,
+                              supervision_type))
+            ans.append((config_name, line))
+
+        return ans
 def test_layers():
     # for some config lines that should be printed the same way as they
     # are read, check that this is the case.
