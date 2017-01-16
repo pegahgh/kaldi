@@ -232,10 +232,19 @@ def main():
     all_layers_aux = []
     if args.aux_xconfig_file is not None:
         all_layers_aux = xparser.read_xconfig_file(args.aux_xconfig_file)
-    all_layers = xparser.read_xconfig_file(args.xconfig_file, all_layers=all_layers_aux)
+    all_layers = xparser.read_xconfig_file(args.xconfig_file, aux_layers=all_layers_aux)
     write_expanded_xconfig_files(args.config_dir, all_layers)
     write_config_files(args.config_dir, all_layers)
-    add_back_compatibility_info(args.config_dir)
+
+    # TODO: aux_xconfig_file is useful for multi-stage training and
+    # Transfer learning, when the layers are added gradually.
+    # If layers from auxillary layers uses in defining new config,
+    # Then nnet3-init is not working at this stage without aux_xconfig_file.
+    if args.aux_xconfig_file is not None:
+        common_lib.force_symlink("final.config".format(args.config_dir),
+                                 "{0}/layer1.config".format(args.config_dir))
+    else:
+        add_back_compatibility_info(args.config_dir)
 
 
 if __name__ == '__main__':

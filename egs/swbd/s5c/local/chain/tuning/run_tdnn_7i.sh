@@ -22,6 +22,7 @@ set -e
 # configs for 'chain'
 affix=
 stage=12
+multi_stage_train=1
 train_stage=-10
 get_egs_stage=-10
 speed_perturb=true
@@ -160,10 +161,21 @@ EOF
 
   echo "$0: creating neural net configs using the xconfig parser for sibling network";
   sibling_dim=200
-  regressor_scale=$[1/$sibling_dim]
+  regressor_lr_factor=1.0
+  regressor_scale=`echo $regressor_lr_factor $sibling_dim | awk '{printf "%.2f \n", $1/$2}'`
+  regressor_scale_vec=""
+  for i in `seq $sibling_dim`;do
+    regressor_scale_vec="$regressor_scale_vec $regressor_scale"
+  done
+  cat <<EOF > $dir/stage2/regressor_scale.vec
+  [$regressor_scale_vec]
+EOF
   mkdir -p $dir/stage2/configs
   cat <<EOF > $dir/stage2/configs/network.xconfig
-  fixed-affine-layer name=lda-sibling input=Append(input@-1,input,input@1,ReplaceIndex(ivector, t, 0)) affine-transform-file=$dir/stage2/configs/lda.mat
+  input dim=100 name=ivector-sibling
+  input dim=40 name=input-sibling
+
+  fixed-affine-layer name=lda-sibling input=Append(input-sibling@-1,input-sibling,input-sibling@1,ReplaceIndex(ivector-sibling, t, 0)) affine-transform-file=$dir/stage2/configs/lda.mat
 
   # the first splicing is moved before the lda layer, so no splicing here
   relu-renorm-layer name=tdnn1-sibling dim=$sibling_dim
@@ -183,7 +195,7 @@ EOF
 
   ## adding the regressor outputs to the sibling network configs.
   relu-renorm-layer name=tdnn2-regressor input=tdnn2 dim=$sibling_dim
-  regressor-layer name=regressor-2 input1=tdnn2-regressor input2=tdnn2-sibling objective-type=linear max-change=1.5 dim=$sibling_dim
+  regressor-layer name=regressor-2 input1=tdnn2-regressor input2=tdnn2-sibling objective-type=linear max-change=1.5 dim=$sibling_dim regressor-scale-file=$dir/stage2/regressor_scale.vec
   #regressor-scale-file=$dir/stage2/regressor_scale.vec supervision-type=unsupervised
 EOF
   steps/nnet3/xconfig_to_configs.py --aux-xconfig-file $dir/stage1/configs/network.xconfig \
@@ -196,7 +208,7 @@ if [ $stage -le 13 ]; then
     utils/create_split_dir.pl \
      /export/b0{5,6,7,8}/$USER/kaldi-data/egs/swbd-$(date +'%m_%d_%H_%M')/s5c/$dir/egs/storage $dir/egs/storage
   fi
-  if [ $multi_stage -le 0 ] && [ ! -f $dir/stage1/final.mdl ]; then
+  if [ $multi_stage_train -le 0 ] && [ ! -f $dir/stage1/final.mdl ]; then
     echo "$0: Training primary network"
     steps/nnet3/chain/train.py --stage $train_stage \
       --cmd "$decode_cmd" \
@@ -226,10 +238,10 @@ if [ $stage -le 13 ]; then
       --dir $dir/stage1  || exit 1;
   fi
 
-  if [ $multi_stage -le 1 ]; then
+  if [ $multi_stage_train -le 1 ]; then
       mkdir -p $dir/stage2
-      echo "$0: copy final primary network to $dir/stage2/init.raw"
-      echo " as initial network for sibling network."
+      echo "$0: copy final primary network in $dir/stage1/final.raw to "
+      echo "$dir/stage2/init.raw as initial network for sibling network."
       nnet3-am-copy --raw=true \
         --edits='set-learning-rate-factor name=* learning-rate-factor=0.0;' \
         'rename-nodes old-name=output  new-name=output-stage1; ' \
@@ -266,7 +278,7 @@ if [ $stage -le 13 ]; then
       --lat-dir exp/tri4_lats_nodup$suffix \
       --dir $dir/stage1  || exit 1;
   fi
-  if [ $multi_stage -le 2 ]; then
+  if [ $multi_stage_train -le 2 ]; then
       echo "$0:remove sibling network regularizer outputs "
       echo "and raname chain-objective for sibling to train "
       echo "with chain objective output for sibling network. \n"
