@@ -41,7 +41,7 @@ num_jobs_final=16
 minibatch_size=128
 frames_per_eg=150
 remove_egs=false
-common_egs_dir=
+common_egs_dir=exp/chain/tdnn_7i_sp/stage1/egs
 xent_regularize=0.1
 
 # End configuration section.
@@ -172,13 +172,9 @@ EOF
 EOF
   mkdir -p $dir/stage2/configs
   cat <<EOF > $dir/stage2/configs/network.xconfig
-  input dim=100 name=ivector-sibling
-  input dim=40 name=input-sibling
-
-  fixed-affine-layer name=lda-sibling input=Append(input-sibling@-1,input-sibling,input-sibling@1,ReplaceIndex(ivector-sibling, t, 0)) affine-transform-file=$dir/stage2/configs/lda.mat
 
   # the first splicing is moved before the lda layer, so no splicing here
-  relu-renorm-layer name=tdnn1-sibling dim=$sibling_dim
+  relu-renorm-layer name=tdnn1-sibling input=lda dim=$sibling_dim
   relu-renorm-layer name=tdnn2-sibling input=Append(-1,0,1) dim=$sibling_dim
   relu-renorm-layer name=tdnn3-sibling input=Append(-1,0,1) dim=$sibling_dim
   relu-renorm-layer name=tdnn4-sibling input=Append(-3,0,3) dim=$sibling_dim
@@ -188,7 +184,7 @@ EOF
 
   ## adding the layers for chain branch
   relu-renorm-layer name=prefinal-chain-sibling input=tdnn7-sibling dim=$sibling_dim target-rms=0.5
-  output-layer name=output_sibling include-log-softmax=false dim=$num_targets max-change=1.5
+  output-layer name=output-sibling include-log-softmax=false dim=$num_targets max-change=1.5
 
   relu-renorm-layer name=prefinal-xent-sibling input=tdnn7-sibling dim=$sibling_dim target-rms=0.5
   output-layer name=output-xent-sibling dim=$num_targets learning-rate-factor=$learning_rate_factor max-change=1.5
@@ -200,8 +196,19 @@ EOF
 EOF
   steps/nnet3/xconfig_to_configs.py --aux-xconfig-file $dir/stage1/configs/network.xconfig \
     --xconfig-file $dir/stage2/configs/network.xconfig --config-dir $dir/stage2/configs/
+
+  # we skip add_compatiblity stage in xconfig_to_config.py
+  # we copy vars from stage1 to stage2 for now.
+  cp -r $dir/stage1/configs/vars $dir/stage2/configs/.
+
+  # edits.config contains all edits required for second stage of training.
+  # the edits contain renaming sibling network output to be output.
+  # edits.config is applied to 0.raw model at acoustic preparation stage.
+  cat <<EOF > $dir/stage2/configs/edits.config
+  rename-node old-name=output-sibling new-name=output
+  rename-node old-name=output-xent-sibling new-name=output-xent
+EOF
 fi
-exit 1;
 
 if [ $stage -le 13 ]; then
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $dir/egs/storage ]; then
@@ -243,10 +250,7 @@ if [ $stage -le 13 ]; then
       echo "$0: copy final primary network in $dir/stage1/final.raw to "
       echo "$dir/stage2/init.raw as initial network for sibling network."
       nnet3-am-copy --raw=true \
-        --edits='set-learning-rate-factor name=* learning-rate-factor=0.0;' \
-        'rename-nodes old-name=output  new-name=output-stage1; ' \
-        'rename-nodes old-name=output-xent new-name=output-xent-stage1' \
-        --edit-configs=$dir/stage1/edit1.config \
+        --edits='set-learning-rate-factor name=* learning-rate-factor=0.0; rename-node old-name=output new-name=output-stage1; rename-node old-name=output-xent new-name=output-xent-stage1' \
         $dir/stage1/final.mdl $dir/stage2/init.raw || exit 1;
 
       echo "$0: Training sibling network using regularizer objectives."
@@ -276,7 +280,7 @@ if [ $stage -le 13 ]; then
       --feat-dir data/${train_set}_hires \
       --tree-dir $treedir \
       --lat-dir exp/tri4_lats_nodup$suffix \
-      --dir $dir/stage1  || exit 1;
+      --dir $dir/stage2  || exit 1;
   fi
   if [ $multi_stage_train -le 2 ]; then
       echo "$0:remove sibling network regularizer outputs "
@@ -314,7 +318,7 @@ if [ $stage -le 13 ]; then
       --feat-dir data/${train_set}_hires \
       --tree-dir $treedir \
       --lat-dir exp/tri4_lats_nodup$suffix \
-      --dir $dir/stage1  || exit 1;
+      --dir $dir/stage2  || exit 1;
 
   fi
 fi
