@@ -72,6 +72,10 @@ def get_args():
                         dest='xent_regularize', default=0.0,
                         help="Weight of regularization function which is the "
                         "cross-entropy cost the outputs.")
+    parser.add_argument("--chain.chain-regularize", type=float,
+                        dest='chain_regularize', default=0.0,
+                        help="Weight of regularization function which is the "
+                        "chain cost the ouputs.")
     parser.add_argument("--chain.right-tolerance", type=int,
                         dest='right_tolerance', default=5, help="")
     parser.add_argument("--chain.left-tolerance", type=int,
@@ -464,6 +468,7 @@ def train(args, run_opts, background_process_handler):
                 max_deriv_time=max_deriv_time,
                 l2_regularize=args.l2_regularize,
                 xent_regularize=args.xent_regularize,
+                chain_regularize=args.chain_regularize,
                 leaky_hmm_coefficient=args.leaky_hmm_coefficient,
                 momentum=args.momentum,
                 max_param_change=args.max_param_change,
@@ -505,6 +510,7 @@ def train(args, run_opts, background_process_handler):
             leaky_hmm_coefficient=args.leaky_hmm_coefficient,
             l2_regularize=args.l2_regularize,
             xent_regularize=args.xent_regularize,
+            chain_regularize=args.chain_regularize,
             run_opts=run_opts,
             background_process_handler=background_process_handler)
 

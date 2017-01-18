@@ -143,7 +143,9 @@ void NnetChainExample::Write(std::ostream &os, bool binary) const {
   WriteToken(os, binary, "<NumOutputs>");
   size = outputs.size();
   WriteBasicType(os, binary, size);
-  KALDI_ASSERT(size > 0 && "Attempting to write NnetChainExample with no outputs");
+  //KALDI_ASSERT(size > 0 && "Attempting to write NnetChainExample with no outputs");
+  if (size == 0)
+    KALDI_VLOG(2) << "Attempting to write NnetChainExample with no outputs";
   if (!binary) os << '\n';
   for (int32 i = 0; i < size; i++) {
     outputs[i].Write(os, binary);
@@ -322,7 +324,7 @@ void GetChainComputationRequest(const Nnet &nnet,
   request->inputs.clear();
   request->inputs.reserve(eg.inputs.size());
   request->outputs.clear();
-  request->outputs.reserve(eg.outputs.size() * 2);
+  request->outputs.reserve(eg.outputs.size() * 5);
   request->need_model_derivative = need_model_derivative;
   request->store_component_stats = store_component_stats;
   for (size_t i = 0; i < eg.inputs.size(); i++) {
@@ -366,6 +368,24 @@ void GetChainComputationRequest(const Nnet &nnet,
       io_spec_xent = io_spec;
       io_spec_xent.name = name + "-xent";
       io_spec_xent.has_deriv = use_xent_derivative;
+    }
+  }
+  // Get computation request for unsupervised output nodes
+  std::vector<std::string> node_names = nnet.GetNodeNames();
+  for (int32 ind = 0; ind < node_names.size(); ind++) {
+    int32 node_index = nnet.GetNodeIndex(node_names[ind]);
+    std::string node_name = node_names[ind];
+    KALDI_ASSERT(node_index >= 0);
+    if (nnet.IsOutputNode(node_index)) {
+      SupervisionType sup_type = nnet.GetNode(node_index).u.
+        objective_types.supervision_type;
+      if (sup_type == kUnsupervised) {
+        request->outputs.resize(request->outputs.size() + 1);
+        IoSpecification &io_spec = request->outputs.back();
+        io_spec.name = node_name;
+        io_spec.indexes = eg.outputs[0].indexes;
+        io_spec.has_deriv = need_model_derivative;
+      }
     }
   }
   // check to see if something went wrong.

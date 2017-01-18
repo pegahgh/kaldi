@@ -133,7 +133,10 @@ void NnetChainTrainer::ProcessOutputs(const NnetChainExample &eg,
       if (use_xent)
         xent_deriv.MulRowsVec(cu_deriv_weights);
     }
-
+    if (opts_.chain_config.chain_regularize != 1.0) {
+      nnet_output_deriv.Scale(opts_.chain_config.chain_regularize);
+      tot_objf *= opts_.chain_config.chain_regularize;
+    }
     computer->AcceptOutputDeriv(sup.name, &nnet_output_deriv);
 
     objf_info_[sup.name].UpdateStats(sup.name, opts_.nnet_config.print_interval,
@@ -143,6 +146,27 @@ void NnetChainTrainer::ProcessOutputs(const NnetChainExample &eg,
     if (use_xent) {
       xent_deriv.Scale(opts_.chain_config.xent_regularize);
       computer->AcceptOutputDeriv(xent_name, &xent_deriv);
+    }
+  }
+  // compute objf for unsupervised output nodes.
+  std::vector<std::string> node_names = nnet_->GetNodeNames();
+  for (int32 ind = 0; ind < node_names.size(); ind++) {
+    int32 node_index = nnet_->GetNodeIndex(node_names[ind]);
+    std::string node_name = node_names[ind];
+    KALDI_ASSERT(node_index >= 0);
+    if (nnet_->IsOutputNode(node_index)) {
+      SupervisionType sup_type = nnet_->GetNode(node_index).u.objective_types.supervision_type;
+      ObjectiveType obj_type = nnet_->GetNode(node_index).u.objective_types.objective_type;
+      if (sup_type == kUnsupervised) {
+        BaseFloat tot_weight, tot_objf;
+        bool supply_deriv = true;
+        ComputeObjectiveFunction(obj_type, node_name,
+                                 supply_deriv, computer,
+                                 &tot_weight, &tot_objf);
+        objf_info_[node_name].UpdateStats(node_name, opts_.nnet_config.print_interval,
+                                          num_minibatches_processed_++,
+                                          tot_weight, tot_objf);
+      }
     }
   }
 }

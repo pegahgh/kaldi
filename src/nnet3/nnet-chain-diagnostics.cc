@@ -30,8 +30,8 @@ NnetChainComputeProb::NnetChainComputeProb(
     const Nnet &nnet):
     nnet_config_(nnet_config),
     chain_config_(chain_config),
-    den_graph_(den_fst, nnet.OutputDim("output")),
     nnet_(nnet),
+    den_graph_(den_fst, nnet.OutputDim("output")),
     compiler_(nnet, nnet_config_.optimize_config),
     deriv_nnet_(NULL),
     num_minibatches_processed_(0) {
@@ -111,15 +111,16 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
     if (use_xent)
       xent_deriv.Resize(nnet_output.NumRows(), nnet_output.NumCols(),
                         kUndefined);
-      
+
     BaseFloat tot_like, tot_l2_term, tot_weight;
-    
+
     ComputeChainObjfAndDeriv(chain_config_, den_graph_,
                              sup.supervision, nnet_output,
                              &tot_like, &tot_l2_term, &tot_weight,
                              (nnet_config_.compute_deriv ? &nnet_output_deriv :
                               NULL), (use_xent ? &xent_deriv : NULL));
-    
+    if (chain_config_.chain_regularize != 1.0)
+      tot_like *= chain_config_.chain_regularize;
     // note: in this context we don't want to apply 'sup.deriv_weights' because
     // this code is used only in combination, where it's part of an L-BFGS
     // optimization algorithm, and in that case if there is a mismatch between
@@ -127,14 +128,16 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
     // in the optimization procedure such as early termination.  (line search
     // and conjugate gradient descent both rely on the derivatives being
     // accurate, and don't fail gracefully if the derivatives are not accurate).
-
     ChainObjectiveInfo &totals = objf_info_[sup.name];
     totals.tot_weight += tot_weight;
     totals.tot_like += tot_like;
     totals.tot_l2_term += tot_l2_term;
 
-    if (nnet_config_.compute_deriv)
+    if (nnet_config_.compute_deriv) {
+      if (chain_config_.chain_regularize != 1.0)
+        nnet_output_deriv.Scale(chain_config_.chain_regularize);
       computer->AcceptOutputDeriv(sup.name, &nnet_output_deriv);
+    }
 
     if (use_xent) {
       ChainObjectiveInfo &xent_totals = objf_info_[xent_name];
@@ -149,6 +152,27 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
       xent_totals.tot_like += xent_objf;
     }
     num_minibatches_processed_++;
+  }
+  // compute objf for unsupervised output nodes.
+  std::vector<std::string> node_names = nnet_.GetNodeNames();
+  for (int32 ind = 0; ind < node_names.size(); ind++) {
+    int32 node_index = nnet_.GetNodeIndex(node_names[ind]);
+    std::string node_name = node_names[ind];
+    KALDI_ASSERT(node_index >= 0);
+    if (nnet_.IsOutputNode(node_index)) {
+      SupervisionType sup_type = nnet_.GetNode(node_index).u.objective_types.supervision_type;
+      ObjectiveType obj_type = nnet_.GetNode(node_index).u.objective_types.objective_type;
+      if (sup_type == kUnsupervised) {
+        BaseFloat tot_weight, tot_objf;
+        bool supply_deriv = nnet_config_.compute_deriv;
+        ChainObjectiveInfo &totals = objf_info_[node_name];
+        ComputeObjectiveFunction(obj_type, node_name,
+                                 supply_deriv, computer,
+                                 &tot_weight, &tot_objf);
+        totals.tot_weight += tot_weight;
+        totals.tot_like += tot_objf;
+      }
+    }
   }
 }
 

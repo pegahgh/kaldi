@@ -41,9 +41,8 @@ num_jobs_final=16
 minibatch_size=128
 frames_per_eg=150
 remove_egs=false
-common_egs_dir=exp/chain/tdnn_7i_sp/stage1/egs
+common_egs_dir=exp/chain/tdnn_7h_sp/egs
 xent_regularize=0.1
-
 # End configuration section.
 echo "$0 $@"  # Print the command line for logging
 
@@ -159,17 +158,21 @@ EOF
   steps/nnet3/xconfig_to_configs.py --xconfig-file $dir/stage1/configs/network.xconfig \
     --config-dir $dir/stage1/configs/
 
-  echo "$0: creating neural net configs using the xconfig parser for sibling network";
-  sibling_dim=200
+  echo "$0: creating neural net configs using the xconfig parser for sibling network"
+  sibling_dim=300
+  primary_dim=625
   regressor_lr_factor=1.0
-  regressor_scale=`echo $regressor_lr_factor $sibling_dim | awk '{printf "%.2f \n", $1/$2}'`
+  regressor_scale=`echo $regressor_lr_factor $primary_dim | awk '{printf "%.8f \n", $1/$2}'`
   regressor_scale_vec=""
-  for i in `seq $sibling_dim`;do
+  for i in `seq $primary_dim`;do
     regressor_scale_vec="$regressor_scale_vec $regressor_scale"
   done
+
+  mkdir -p $dir/stage2
   cat <<EOF > $dir/stage2/regressor_scale.vec
-  [$regressor_scale_vec]
+  [ $regressor_scale_vec ]
 EOF
+
   mkdir -p $dir/stage2/configs
   cat <<EOF > $dir/stage2/configs/network.xconfig
 
@@ -190,23 +193,50 @@ EOF
   output-layer name=output-xent-sibling dim=$num_targets learning-rate-factor=$learning_rate_factor max-change=1.5
 
   ## adding the regressor outputs to the sibling network configs.
-  relu-renorm-layer name=tdnn2-regressor input=tdnn2 dim=$sibling_dim
-  regressor-layer name=regressor-2 input1=tdnn2-regressor input2=tdnn2-sibling objective-type=linear max-change=1.5 dim=$sibling_dim regressor-scale-file=$dir/stage2/regressor_scale.vec
-  #regressor-scale-file=$dir/stage2/regressor_scale.vec supervision-type=unsupervised
+  relu-renorm-layer name=tdnn2-regressor input=tdnn2-sibling dim=$primary_dim
+  regressor-layer name=regressor-2 input1=tdnn2-regressor input2=tdnn2 objective-type=linear max-change=1.5 dim=$primary_dim regressor-scale-file=$dir/stage2/regressor_scale.vec supervision-type=unsupervised
+
+  relu-renorm-layer name=tdnn3-regressor input=tdnn3-sibling dim=$primary_dim
+  regressor-layer name=regressor-3 input1=tdnn3-regressor input2=tdnn3 objective-type=linear max-change=1.5 dim=$primary_dim regressor-scale-file=$dir/stage2/regressor_scale.vec supervision-type=unsupervised
+
+  relu-renorm-layer name=tdnn4-regressor input=tdnn4-sibling dim=$primary_dim
+  regressor-layer name=regressor-4 input1=tdnn4-regressor input2=tdnn4 objective-type=linear max-change=1.5 dim=$primary_dim regressor-scale-file=$dir/stage2/regressor_scale.vec supervision-type=unsupervised
+
+  relu-renorm-layer name=tdnn5-regressor input=tdnn5-sibling dim=$primary_dim
+  regressor-layer name=regressor-5 input1=tdnn5-regressor input2=tdnn5 objective-type=linear max-change=1.5 dim=$primary_dim regressor-scale-file=$dir/stage2/regressor_scale.vec supervision-type=unsupervised
+
+  relu-renorm-layer name=tdnn6-regressor input=tdnn6-sibling dim=$primary_dim
+  regressor-layer name=regressor-6 input1=tdnn6-regressor input2=tdnn6 objective-type=linear max-change=1.5 dim=$primary_dim regressor-scale-file=$dir/stage2/regressor_scale.vec supervision-type=unsupervised
+
+  relu-renorm-layer name=tdnn7-regressor input=tdnn7-sibling dim=$primary_dim
+  regressor-layer name=regressor-7 input1=tdnn7-regressor input2=tdnn7 objective-type=linear max-change=1.5 dim=$primary_dim regressor-scale-file=$dir/stage2/regressor_scale.vec supervision-type=unsupervised
 EOF
   steps/nnet3/xconfig_to_configs.py --aux-xconfig-file $dir/stage1/configs/network.xconfig \
     --xconfig-file $dir/stage2/configs/network.xconfig --config-dir $dir/stage2/configs/
 
   # we skip add_compatiblity stage in xconfig_to_config.py
-  # we copy vars from stage1 to stage2 for now.
+  # we copy vars from stage1 to stage2 and stage3 for now.
   cp -r $dir/stage1/configs/vars $dir/stage2/configs/.
-
-  # edits.config contains all edits required for second stage of training.
+  cp -r $dir/stage1/configs/vars $dir/stage3/configs/.
+  # edits.config contains edits required for different stage of training.
+  # it is applied to 0.mdl generated at prepare_initial_network stage in
+  # iter -1.
+  # The edits for 2nd stage contains renaming primary network's outputs to
+  # <output-name>-primary to not train using these outputs.
   # the edits contain renaming sibling network output to be output.
-  # edits.config is applied to 0.raw model at acoustic preparation stage.
   cat <<EOF > $dir/stage2/configs/edits.config
+  rename-node old-name=output new-name=output-primary
+  rename-node old-name=output-xent new-name=output-xent-primary
   rename-node old-name=output-sibling new-name=output
   rename-node old-name=output-xent-sibling new-name=output-xent
+EOF
+  # edits.config contains edits required for 3rd stage of training.
+  mkdir -p $dir/stage3
+  mkdir -p $dir/stage3/configs
+  cat <<EOF > $dir/stage3/configs/edits.config
+  remove-output-nodes name=regressor*
+  remove-output-nodes name=*-primary
+  remove-orphans
 EOF
 fi
 
@@ -248,9 +278,10 @@ if [ $stage -le 13 ]; then
   if [ $multi_stage_train -le 1 ]; then
       mkdir -p $dir/stage2
       echo "$0: copy final primary network in $dir/stage1/final.raw to "
-      echo "$dir/stage2/init.raw as initial network for sibling network."
+      echo "$dir/stage2/init.raw as initial network with zero lr factor"
+      echo "as primary network for sibling network."
       nnet3-am-copy --raw=true \
-        --edits='set-learning-rate-factor name=* learning-rate-factor=0.0; rename-node old-name=output new-name=output-stage1; rename-node old-name=output-xent new-name=output-xent-stage1' \
+        --edits='set-learning-rate-factor name=* learning-rate-factor=0.0;' \
         $dir/stage1/final.mdl $dir/stage2/init.raw || exit 1;
 
       echo "$0: Training sibling network using regularizer objectives."
@@ -259,9 +290,9 @@ if [ $stage -le 13 ]; then
       --init-raw-model $dir/stage2/init.raw \
       --feat.online-ivector-dir exp/nnet3/ivectors_${train_set} \
       --feat.cmvn-opts "--norm-means=false --norm-vars=false" \
-      --chain.xent-regularize $xent_regularize \
       --chain.leaky-hmm-coefficient 0.1 \
-      --chain.l2-regularize 0.00005 \
+      --chain.l2-regularize 0.0 \
+      --chain.chain-regularize 0.00000001 \
       --chain.apply-deriv-weights false \
       --chain.lm-opts="--num-extra-lm-states=2000" \
       --egs.dir "$common_egs_dir" \
@@ -283,13 +314,12 @@ if [ $stage -le 13 ]; then
       --dir $dir/stage2  || exit 1;
   fi
   if [ $multi_stage_train -le 2 ]; then
+      cp $dir/stage2/den.fst $dir/stage3/.
       echo "$0:remove sibling network regularizer outputs "
       echo "and raname chain-objective for sibling to train "
       echo "with chain objective output for sibling network. \n"
       echo "Teacher-student objective can be added in future."
-      nnet3-am-copy --edits='raname-output-nodes old-name=output-sibling new-name=output; ' \
-                'rename-output-nodes old-name=output-xent-sibling new-name=output-xent; ' \
-                'remove-output-nodes name=regressor-1'\
+      nnet3-am-copy --edits-config=$dir/stage3/configs/edits.config \
         $dir/stage2/final.mdl $dir/stage3/0.mdl || exit 1;
       mkdir -p $dir/stage3/configs
       cp -r $dir/stage2/configs $dir/stage3/configs || exit 1;
@@ -318,7 +348,7 @@ if [ $stage -le 13 ]; then
       --feat-dir data/${train_set}_hires \
       --tree-dir $treedir \
       --lat-dir exp/tri4_lats_nodup$suffix \
-      --dir $dir/stage2  || exit 1;
+      --dir $dir/stage3  || exit 1;
 
   fi
 fi

@@ -41,14 +41,14 @@ int main(int argc, char *argv[]) {
         " nnet3-am-init tree topo 0.raw 0.mdl\n"
         "See also: nnet3-init, nnet3-am-copy, nnet3-am-info, nnet3-am-train-transitions,\n"
         " nnet3-am-adjust-priors\n";
-    
+
     bool binary_write = true;
-    
+
     ParseOptions po(usage);
     po.Register("binary", &binary_write, "Write output in binary mode");
-    
+
     po.Read(argc, argv);
-    
+
     if (po.NumArgs() < 3 || po.NumArgs() > 4) {
       po.PrintUsage();
       exit(1);
@@ -57,26 +57,26 @@ int main(int argc, char *argv[]) {
     std::string raw_nnet_rxfilename,
         am_nnet_wxfilename;
     TransitionModel *trans_model = NULL;
-    
+
     if (po.NumArgs() == 4) {
       std::string tree_rxfilename = po.GetArg(1),
           topo_rxfilename = po.GetArg(2);
       raw_nnet_rxfilename = po.GetArg(3);
       am_nnet_wxfilename = po.GetArg(4);
-    
+
       ContextDependency ctx_dep;
       ReadKaldiObject(tree_rxfilename, &ctx_dep);
-    
+
       HmmTopology topo;
       ReadKaldiObject(topo_rxfilename, &topo);
-      
+
       // Construct the transition model from the tree and the topology file.
       trans_model = new TransitionModel(ctx_dep, topo);
     } else {
       std::string trans_model_rxfilename =  po.GetArg(1);
       raw_nnet_rxfilename = po.GetArg(2);
       am_nnet_wxfilename = po.GetArg(3);
-      
+
       trans_model = new TransitionModel();
       ReadKaldiObject(trans_model_rxfilename, trans_model);
     }
@@ -85,8 +85,8 @@ int main(int argc, char *argv[]) {
     ReadKaldiObject(raw_nnet_rxfilename, &nnet);
 
     // priors won't be set yet.
-    AmNnetSimple am_nnet(nnet);  
-    
+    AmNnetSimple am_nnet(nnet);
+
     {
       Output ko(am_nnet_wxfilename, binary_write);
       trans_model->Write(ko.Stream(), binary_write);

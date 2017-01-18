@@ -61,9 +61,15 @@ struct ChainTrainingOptions {
   // should have a softmax as its final nonlinearity.
   BaseFloat xent_regularize;
 
+  // chain regularization constant(default is 1.0).
+  // The gradient for chain objective scale using
+  // this value.
+  BaseFloat chain_regularize;
+
   ChainTrainingOptions(): l2_regularize(0.0), leaky_hmm_coefficient(1.0e-05),
-                          xent_regularize(0.0) { }
-  
+                          xent_regularize(0.0),
+                          chain_regularize(1.0) { }
+
   void Register(OptionsItf *opts) {
     opts->Register("l2-regularize", &l2_regularize, "l2 regularization "
                    "constant for 'chain' training, applied to the output "
@@ -78,6 +84,8 @@ struct ChainTrainingOptions {
                    "nonzero, the network is expected to have an output "
                    "named 'output-xent', which should have a softmax as "
                    "its final nonlinearity.");
+    opts->Register("chain-regularize", &chain_regularize, "chain "
+                   " regularization constant for 'chain' objective.");
   }
 };
 
@@ -121,7 +129,7 @@ void ComputeChainObjfAndDeriv(const ChainTrainingOptions &opts,
                               BaseFloat *weight,
                               CuMatrixBase<BaseFloat> *nnet_output_deriv,
                               CuMatrixBase<BaseFloat> *xent_output_deriv = NULL);
-                              
+
 
 
 }  // namespace chain

@@ -118,7 +118,8 @@ def train_new_models(dir, iter, srand, num_jobs,
                      raw_model_string, egs_dir, left_context, right_context,
                      apply_deriv_weights,
                      min_deriv_time, max_deriv_time,
-                     l2_regularize, xent_regularize, leaky_hmm_coefficient,
+                     l2_regularize, xent_regularize, chain_regularize,
+                     leaky_hmm_coefficient,
                      momentum, max_param_change,
                      shuffle_buffer_size, num_chunk_per_minibatch,
                      frame_subsampling_factor, truncate_deriv_weights,
@@ -164,6 +165,7 @@ def train_new_models(dir, iter, srand, num_jobs,
                     --apply-deriv-weights={app_deriv_wts} \
                     --l2-regularize={l2} --leaky-hmm-coefficient={leaky} \
                     {cache_io_opts}  --xent-regularize={xent_reg} \
+                    --chain-regularize={chain_reg} \
                     {deriv_time_opts} \
                     --print-interval=10 --momentum={momentum} \
                     --max-param-change={max_param_change} \
@@ -186,7 +188,8 @@ def train_new_models(dir, iter, srand, num_jobs,
                         trunc_deriv=truncate_deriv_weights,
                         app_deriv_wts=apply_deriv_weights,
                         fr_shft=frame_shift, l2=l2_regularize,
-                        xent_reg=xent_regularize, leaky=leaky_hmm_coefficient,
+                        xent_reg=xent_regularize, chain_reg=chain_regularize,
+                        leaky=leaky_hmm_coefficient,
                         parallel_train_opts=run_opts.parallel_train_opts,
                         momentum=momentum, max_param_change=max_param_change,
                         raw_model=raw_model_string,
@@ -220,6 +223,7 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                         apply_deriv_weights, min_deriv_time,
                         max_deriv_time,
                         l2_regularize, xent_regularize,
+                        chain_regularize,
                         leaky_hmm_coefficient,
                         momentum, max_param_change, shuffle_buffer_size,
                         frame_subsampling_factor, truncate_deriv_weights,
@@ -255,6 +259,7 @@ def train_one_iteration(dir, iter, srand, egs_dir,
         dir=dir, iter=iter, egs_dir=egs_dir,
         left_context=left_context, right_context=right_context,
         l2_regularize=l2_regularize, xent_regularize=xent_regularize,
+        chain_regularize=chain_regularize,
         leaky_hmm_coefficient=leaky_hmm_coefficient, run_opts=run_opts,
         background_process_handler=background_process_handler)
 
@@ -313,6 +318,7 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                      max_deriv_time=max_deriv_time,
                      l2_regularize=l2_regularize,
                      xent_regularize=xent_regularize,
+                     chain_regularize=chain_regularize,
                      leaky_hmm_coefficient=leaky_hmm_coefficient,
                      momentum=momentum,
                      max_param_change=cur_max_param_change,
@@ -434,15 +440,6 @@ def prepare_initial_acoustic_model(dir, run_opts, srand=-1):
 
     common_train_lib.prepare_initial_network(dir, run_opts,
                                              srand=srand)
-    edits_config_file = "{0}/configs/edits.config".format(dir)
-    if os.path.isfile(edits_config_file):
-        common_lib.run_job(
-            """{command} {dir}/log/edit.log \
-                    nnet3-copy --edits-config={edits_config} {dir}/0.raw \
-                    {dir}/0.raw
-            """.format(command=run_opts.command,
-                       dir=dir,
-                       edits_config=edits_config_file))
 
     # The model-format for a 'chain' acoustic model is just the transition
     # model and then the raw nnet, so we can use 'cat' to create this, as
@@ -455,10 +452,20 @@ def prepare_initial_acoustic_model(dir, run_opts, srand=-1):
                 nnet3-am-init {dir}/0.trans_mdl {dir}/0.raw \
                 {dir}/0.mdl""".format(command=run_opts.command, dir=dir))
 
+    edits_config_file = "{0}/configs/edits.config".format(dir)
+    if os.path.isfile(edits_config_file):
+        common_lib.run_job(
+            """{command} {dir}/log/edit.log \
+                    nnet3-am-copy --edits-config={edits_config} {dir}/0.mdl \
+                    {dir}/0.mdl
+            """.format(command=run_opts.command,
+                       dir=dir,
+                       edits_config=edits_config_file))
 
 def compute_train_cv_probabilities(dir, iter, egs_dir, left_context,
                                    right_context, l2_regularize,
-                                   xent_regularize, leaky_hmm_coefficient,
+                                   xent_regularize, chain_regularize,
+                                   leaky_hmm_coefficient,
                                    run_opts, wait=False,
                                    background_process_handler=None):
     model = '{0}/{1}.mdl'.format(dir, iter)
@@ -467,6 +474,7 @@ def compute_train_cv_probabilities(dir, iter, egs_dir, left_context,
         """{command} {dir}/log/compute_prob_valid.{iter}.log \
                 nnet3-chain-compute-prob --l2-regularize={l2} \
                 --leaky-hmm-coefficient={leaky} --xent-regularize={xent_reg} \
+                --chain-regularize={chain_reg} \
                 "nnet3-am-copy --raw=true {model} - |" {dir}/den.fst \
                 "ark,bg:nnet3-chain-copy-egs --left-context={lc} \
                     --right-context={rc} ark:{egs_dir}/valid_diagnostic.cegs \
@@ -475,6 +483,7 @@ def compute_train_cv_probabilities(dir, iter, egs_dir, left_context,
                    lc=left_context, rc=right_context,
                    l2=l2_regularize, leaky=leaky_hmm_coefficient,
                    xent_reg=xent_regularize,
+                   chain_reg=chain_regularize,
                    egs_dir=egs_dir), wait=wait,
         background_process_handler=background_process_handler)
 
@@ -482,6 +491,7 @@ def compute_train_cv_probabilities(dir, iter, egs_dir, left_context,
         """{command} {dir}/log/compute_prob_train.{iter}.log \
                 nnet3-chain-compute-prob --l2-regularize={l2} \
                 --leaky-hmm-coefficient={leaky} --xent-regularize={xent_reg} \
+                --chain-regularize={chain_reg} \
                 "nnet3-am-copy --raw=true {model} - |" {dir}/den.fst \
                 "ark,bg:nnet3-chain-copy-egs --left-context={lc} \
                     --right-context={rc} ark:{egs_dir}/train_diagnostic.cegs \
@@ -490,6 +500,7 @@ def compute_train_cv_probabilities(dir, iter, egs_dir, left_context,
                    lc=left_context, rc=right_context,
                    l2=l2_regularize, leaky=leaky_hmm_coefficient,
                    xent_reg=xent_regularize,
+                   chain_reg=chain_regularize,
                    egs_dir=egs_dir), wait=wait,
         background_process_handler=background_process_handler)
 
@@ -517,7 +528,8 @@ def compute_progress(dir, iter, run_opts, wait=False,
 def combine_models(dir, num_iters, models_to_combine, num_chunk_per_minibatch,
                    egs_dir, left_context, right_context,
                    leaky_hmm_coefficient, l2_regularize,
-                   xent_regularize, run_opts, background_process_handler=None):
+                   xent_regularize, chain_regularize,
+                   run_opts, background_process_handler=None):
     """ Function to do model combination
 
     In the nnet3 setup, the logic
@@ -567,6 +579,7 @@ def combine_models(dir, num_iters, models_to_combine, num_chunk_per_minibatch,
         dir=dir, iter='final', egs_dir=egs_dir,
         left_context=left_context, right_context=right_context,
         l2_regularize=l2_regularize, xent_regularize=xent_regularize,
+        chain_regularize=chain_regularize,
         leaky_hmm_coefficient=leaky_hmm_coefficient,
         run_opts=run_opts, wait=False,
         background_process_handler=background_process_handler)

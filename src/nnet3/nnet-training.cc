@@ -39,7 +39,7 @@ NnetTrainer::NnetTrainer(const NnetTrainerOptions &config,
                              // natural-gradient updates.
   SetZero(is_gradient, delta_nnet_);
   const int32 num_updatable = NumUpdatableComponents(*delta_nnet_);
-  num_max_change_per_component_applied_.resize(num_updatable, 0); 
+  num_max_change_per_component_applied_.resize(num_updatable, 0);
   num_max_change_global_applied_ = 0;
 
   if (config_.read_cache != "") {
@@ -52,7 +52,7 @@ NnetTrainer::NnetTrainer(const NnetTrainerOptions &config,
       KALDI_WARN << "Could not open cached computation. "
                     "Probably this is the first training iteration.";
     }
-  } 
+  }
 }
 
 
@@ -85,15 +85,39 @@ void NnetTrainer::ProcessOutputs(const NnetExample &eg,
     int32 node_index = nnet_->GetNodeIndex(io.name);
     KALDI_ASSERT(node_index >= 0);
     if (nnet_->IsOutputNode(node_index)) {
-      ObjectiveType obj_type = nnet_->GetNode(node_index).u.objective_type;
-      BaseFloat tot_weight, tot_objf;
-      bool supply_deriv = true;
-      ComputeObjectiveFunction(io.features, obj_type, io.name,
-                               supply_deriv, computer,
-                               &tot_weight, &tot_objf);
-      objf_info_[io.name].UpdateStats(io.name, config_.print_interval,
-                                      num_minibatches_processed_++,
-                                      tot_weight, tot_objf);
+      ObjectiveType obj_type = nnet_->GetNode(node_index).u.objective_types.objective_type;
+      SupervisionType sup_type = nnet_->GetNode(node_index).u.objective_types.supervision_type;
+      if (sup_type == kSupervised) {
+        BaseFloat tot_weight, tot_objf;
+        bool supply_deriv = true;
+        ComputeObjectiveFunction(io.features, obj_type, io.name,
+                                 supply_deriv, computer,
+                                 &tot_weight, &tot_objf);
+        objf_info_[io.name].UpdateStats(io.name, config_.print_interval,
+                                        num_minibatches_processed_++,
+                                        tot_weight, tot_objf);
+      }
+    }
+  }
+  // compute objective for unsupervised output nodes.
+  std::vector<std::string> node_names = nnet_->GetNodeNames();
+  for (int32 ind = 0; ind < node_names.size(); ind++) {
+    int32 node_index = nnet_->GetNodeIndex(node_names[ind]);
+    std::string node_name = node_names[ind];
+    KALDI_ASSERT(node_index >= 0);
+    if (nnet_->IsOutputNode(node_index)) {
+      ObjectiveType obj_type = nnet_->GetNode(node_index).u.objective_types.objective_type;
+      SupervisionType sup_type = nnet_->GetNode(node_index).u.objective_types.supervision_type;
+      if (sup_type == kUnsupervised) {
+        BaseFloat tot_weight, tot_objf;
+        bool supply_deriv = true;
+        ComputeObjectiveFunction(obj_type, node_name,
+                                 supply_deriv, computer,
+                                 &tot_weight, &tot_objf);
+        objf_info_[node_name].UpdateStats(node_name, config_.print_interval,
+                                        num_minibatches_processed_++,
+                                        tot_weight, tot_objf);
+      }
     }
   }
 }
@@ -167,7 +191,7 @@ void NnetTrainer::UpdateParamsWithMaxChange() {
            << " / " << num_updatable << " Updatable Components."
            << "(smallest factor=" << min_scale << " on "
            << component_name_with_min_scale
-           << " with max-change=" << max_change_with_min_scale <<"). "; 
+           << " with max-change=" << max_change_with_min_scale <<"). ";
     if (param_delta > config_.max_param_change)
       ostr << "Global max-change factor was "
            << config_.max_param_change / param_delta
@@ -276,7 +300,7 @@ bool ObjectiveFunctionInfo::PrintTotalStats(const std::string &name) const {
               << (tot_objf / tot_weight) << " over " << tot_weight << " frames.";
   } else {
     KALDI_LOG << "Overall average objective function for '" << name << "' is "
-              << objf << " + " << aux_objf << " = " << sum_objf        
+              << objf << " + " << aux_objf << " = " << sum_objf
               << " over " << tot_weight << " frames.";
   }
   KALDI_LOG << "[this line is to be parsed by a script:] "
@@ -290,7 +314,7 @@ NnetTrainer::~NnetTrainer() {
     Output ko(config_.write_cache, config_.binary_write_cache);
     compiler_.WriteCache(ko.Stream(), config_.binary_write_cache);
     KALDI_LOG << "Wrote computation cache to " << config_.write_cache;
-  } 
+  }
   delete delta_nnet_;
 }
 
@@ -371,7 +395,46 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
   }
 }
 
+void ComputeObjectiveFunction(ObjectiveType objective_type,
+                              const std::string &output_name,
+                              bool supply_deriv,
+                              NnetComputer *computer,
+                              BaseFloat *tot_weight,
+                              BaseFloat *tot_objf) {
+  const CuMatrixBase<BaseFloat> &output = computer->GetOutput(output_name);
 
+  CuMatrix<BaseFloat> output_deriv(output.NumRows(),
+                                   output.NumCols(),
+                                   kUndefined);
+
+  switch (objective_type) {
+    case kLinear: {
+      // objective is x
+      *tot_weight = output.NumRows();
+      *tot_objf = output.Sum();
+      if (supply_deriv) {
+        output_deriv.Set(1.0);
+      }
+      break;
+    }
+
+    case kQuadratic: {
+      // objective is -0.5 x^2
+      *tot_weight = output.NumRows();
+      *tot_objf = 0.5 * TraceMatMat(output, output, kTrans);
+      if (supply_deriv) {
+        output_deriv.CopyFromMat(output);
+        output_deriv.Scale(-1.0);
+      }
+      break;
+    }
+    default:
+      KALDI_ERR << "Objective function type " << objective_type
+                << " not handled.";
+  }
+  if (supply_deriv)
+    computer->AcceptOutputDeriv(output_name, &output_deriv);
+}
 
 } // namespace nnet3
 } // namespace kaldi

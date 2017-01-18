@@ -1079,7 +1079,7 @@ class XconfigRegressorLayer(XconfigLayerBase):
             if output_delay != 0:
                 cur_node = 'Offset({0}, {1})'.format(cur_node, output_delay)
 
-            line = ('output-node name={0} input={1} objective={2}'
+            line = ('output-node name={0} input={1} objective={2} supervision={3}'
                     ''.format(self.name, cur_node, objective_type,
                               supervision_type))
             ans.append((config_name, line))

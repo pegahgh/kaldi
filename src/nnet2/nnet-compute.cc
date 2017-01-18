@@ -36,24 +36,24 @@ class NnetComputer {
      and last frames.) */
   NnetComputer(const Nnet &nnet,
                const CuMatrixBase<BaseFloat> &input_feats,
-               bool pad, 
+               bool pad,
                Nnet *nnet_to_update = NULL);
-  
+
   /// The forward-through-the-layers part of the computation.
   void Propagate();
-  
+
   void Backprop(CuMatrix<BaseFloat> *tmp_deriv);
-                
-  
+
+
   /// Computes objf derivative at last layer, and returns objective
   /// function summed over labels and multiplied by utterance_weight.
   /// [Note: utterance_weight will normally be 1.0].
   BaseFloat ComputeLastLayerDeriv(const Posterior &pdf_post,
                                   CuMatrix<BaseFloat> *deriv) const;
-  
+
   CuMatrixBase<BaseFloat> &GetOutput() { return forward_data_.back(); }
-  
- private:  
+
+ private:
   const Nnet &nnet_;
   std::vector<CuMatrix<BaseFloat> > forward_data_;
   Nnet *nnet_to_update_; // May be NULL, if just want objective function
@@ -134,7 +134,7 @@ BaseFloat NnetComputer::ComputeLastLayerDeriv(const Posterior &pdf_post,
   }
   KALDI_VLOG(4) << "Objective function is " << (tot_objf/tot_weight) <<
       " per frame over " << tot_weight << " samples.";
-  return tot_objf;  
+  return tot_objf;
 }
 
 
@@ -143,7 +143,7 @@ void NnetComputer::Backprop(CuMatrix<BaseFloat> *tmp_deriv) {
   // If later this reasoning changes, we can change this
   // statement and add logic to make component_to_update, below,
   // NULL if necessary.
-  
+
   for (int32 c = nnet_.NumComponents() - 1; c >= 0; c--) {
     const Component &component = nnet_.GetComponent(c);
     Component *component_to_update = &(nnet_to_update_->GetComponent(c));
@@ -151,7 +151,7 @@ void NnetComputer::Backprop(CuMatrix<BaseFloat> *tmp_deriv) {
                             &output = forward_data_[c+1],
                       &output_deriv = *tmp_deriv;
     CuMatrix<BaseFloat> input_deriv;
-    component.Backprop(chunk_info_[c], chunk_info_[c+1], input, output, output_deriv, 
+    component.Backprop(chunk_info_[c], chunk_info_[c+1], input, output, output_deriv,
                        component_to_update, &input_deriv);
     *tmp_deriv = input_deriv;
   }
@@ -188,7 +188,7 @@ void NnetComputationChunked(const Nnet &nnet,
 
   for (int32 i = 0; i < num_chunks; i++) {
     int32 index = i * chunk_size,
-          offset = std::min(num_rows - chunk_size * i, 
+          offset = std::min(num_rows - chunk_size * i,
                             left_context + chunk_size + right_context);
     SubMatrix<BaseFloat> chunk_input(full_input, index, offset, 0, dim);
     CuMatrix<BaseFloat> cu_chunk_input(chunk_input);
@@ -198,8 +198,8 @@ void NnetComputationChunked(const Nnet &nnet,
     NnetComputer nnet_computer(nnet, cu_chunk_input, false, NULL);
     nnet_computer.Propagate();
     CuMatrix<BaseFloat> cu_chunk_output(nnet_computer.GetOutput());
-    SubMatrix<BaseFloat> chunk_out(*output, i * chunk_size, 
-                           cu_chunk_output.NumRows(), 0, 
+    SubMatrix<BaseFloat> chunk_out(*output, i * chunk_size,
+                           cu_chunk_output.NumRows(), 0,
                            cu_chunk_output.NumCols());
     chunk_out.CopyFromMat(cu_chunk_output);
   }
@@ -214,7 +214,7 @@ BaseFloat NnetGradientComputation(const Nnet &nnet,
   nnet_computer.Propagate();
   CuMatrix<BaseFloat> deriv;
   BaseFloat ans;
-  ans = nnet_computer.ComputeLastLayerDeriv(pdf_post, &deriv);  
+  ans = nnet_computer.ComputeLastLayerDeriv(pdf_post, &deriv);
   nnet_computer.Backprop(&deriv);
   return ans;
 }
