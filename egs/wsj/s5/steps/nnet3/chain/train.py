@@ -73,7 +73,7 @@ def get_args():
                         help="Weight of regularization function which is the "
                         "cross-entropy cost the outputs.")
     parser.add_argument("--chain.chain-regularize", type=float,
-                        dest='chain_regularize', default=0.0,
+                        dest='chain_regularize', default=1.0,
                         help="Weight of regularization function which is the "
                         "chain cost the ouputs.")
     parser.add_argument("--chain.right-tolerance", type=int,

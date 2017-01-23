@@ -33,6 +33,8 @@ decode_iter=
 num_epochs=4
 initial_effective_lrate=0.001
 final_effective_lrate=0.0001
+sibling_initial_effective_lrate=0.0005
+sibling_final_effective_lrate=0.00005
 leftmost_questions_truncate=-1
 max_param_change=2.0
 final_layer_normalize_target=0.5
@@ -118,7 +120,7 @@ if [ $stage -le 12 ]; then
 
   num_targets=$(tree-info exp/chain/tri5_7d_tree_sp/tree |grep num-pdfs|awk '{print $2}')
   learning_rate_factor=$(echo "print 0.5/$xent_regularize" | python)
-
+  mkdir -p $dir/stage1
   mkdir -p $dir/stage1/configs
   cat <<EOF > $dir/stage1/configs/network.xconfig
   input dim=100 name=ivector
@@ -268,7 +270,7 @@ if [ $stage -le 13 ]; then
       --trainer.optimization.initial-effective-lrate $initial_effective_lrate \
       --trainer.optimization.final-effective-lrate $final_effective_lrate \
       --trainer.max-param-change $max_param_change \
-      --cleanup.remove-egs $remove_egs \
+      --cleanup.remove-egs false \
       --feat-dir data/${train_set}_hires \
       --tree-dir $treedir \
       --lat-dir exp/tri4_lats_nodup$suffix \
@@ -307,7 +309,7 @@ if [ $stage -le 13 ]; then
       --trainer.optimization.initial-effective-lrate $initial_effective_lrate \
       --trainer.optimization.final-effective-lrate $final_effective_lrate \
       --trainer.max-param-change $max_param_change \
-      --cleanup.remove-egs $remove_egs \
+      --cleanup.remove-egs false \
       --feat-dir data/${train_set}_hires \
       --tree-dir $treedir \
       --lat-dir exp/tri4_lats_nodup$suffix \
@@ -341,8 +343,8 @@ if [ $stage -le 13 ]; then
       --trainer.num-epochs 1 \
       --trainer.optimization.num-jobs-initial $num_jobs_initial \
       --trainer.optimization.num-jobs-final $num_jobs_final \
-      --trainer.optimization.initial-effective-lrate $initial_effective_lrate \
-      --trainer.optimization.final-effective-lrate $final_effective_lrate \
+      --trainer.optimization.initial-effective-lrate $sibling_initial_effective_lrate \
+      --trainer.optimization.final-effective-lrate $sibling_final_effective_lrate \
       --trainer.max-param-change $max_param_change \
       --cleanup.remove-egs $remove_egs \
       --feat-dir data/${train_set}_hires \

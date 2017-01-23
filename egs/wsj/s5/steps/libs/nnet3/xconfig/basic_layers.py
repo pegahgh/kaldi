@@ -491,9 +491,9 @@ class XconfigOutputLayer(XconfigLayerBase):
     # comment in output_name for the reason why.
     def auxiliary_outputs(self):
 
-        return []
+        return ['log-softmax']
 
-    def output_name(self, auxiliary_outputs = None):
+    def output_name(self, auxiliary_output = None):
 
         # Note: nodes of type output-node in nnet3 may not be accessed in
         # Descriptors, so calling this with auxiliary_outputs=None doesn't
@@ -501,14 +501,28 @@ class XconfigOutputLayer(XconfigLayerBase):
         # layer and/or the output of the affine layer available as inputs to
         # other layers, in some circumstances.
         # we'll implement that when it's needed.
-        raise RuntimeError("Outputs of output-layer may not be used by other"
-                            " layers")
+        if auxiliary_output is not None:
+            if auxiliary_output in self.auxiliary_outputs():
+                node_name = auxiliary_output
+            else:
+                raise RuntimeError("Unknow auxilary output name {0}".format(
+                    auxiliary_output))
+            return '{0}.{1}'.format(self.name, node_name)
+
+        #raise RuntimeError("Outputs of output-layer may not be used by other"
+        #                    " layers")
 
     def output_dim(self, auxiliary_output = None):
-
+        if auxiliary_output is not None:
+            if auxiliary_output in self.auxiliary_outputs():
+                return self.config['dim']
+            else:
+                raise RuntimeError("Unknown auxiliary output name {0}".format(
+                    auxiliary_output))
+        return self.config['dim']
         # see comment in output_name().
-        raise RuntimeError("Outputs of output-layer may not be used by other"
-                            " layers")
+        # raise RuntimeError("Outputs of output-layer may not be used by other"
+        #                    " layers")
 
     def get_full_config(self):
 
