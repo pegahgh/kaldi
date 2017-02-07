@@ -533,7 +533,7 @@ def parse_config_line(orig_config_line):
     ans_dict = dict()
     other_fields = re.split(r'\s*([-a-zA-Z0-9_]*)=', rest_of_line)
     if not (other_fields[0] == '' and len(other_fields) % 2 ==  1):
-        raise RuntimeError("Could not parse config line.");
+        raise RuntimeError("Could not parse config line.")
     fields += other_fields[1:]
     num_variables = len(fields) / 2
     for i in range(num_variables):

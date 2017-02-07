@@ -231,7 +231,9 @@ def main():
     backup_xconfig_file(args.xconfig_file, args.config_dir)
     all_layers_aux = []
     if args.aux_xconfig_file is not None:
-        all_layers_aux = xparser.read_xconfig_file(args.aux_xconfig_file)
+        aux_files = args.aux_xconfig_file.split()
+        for aux_file in aux_files:
+            all_layers_for_aux_file = xparser.read_xconfig_file(aux_file, all_layers_aux)
     all_layers = xparser.read_xconfig_file(args.xconfig_file, aux_layers=all_layers_aux)
     write_expanded_xconfig_files(args.config_dir, all_layers)
     write_config_files(args.config_dir, all_layers)

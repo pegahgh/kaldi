@@ -421,7 +421,7 @@ void ComputeObjectiveFunction(ObjectiveType objective_type,
     case kQuadratic: {
       // objective is -0.5 x^2
       *tot_weight = output.NumRows();
-      *tot_objf = 0.5 * TraceMatMat(output, output, kTrans);
+      *tot_objf = -0.5 * TraceMatMat(output, output, kTrans);
       if (supply_deriv) {
         output_deriv.CopyFromMat(output);
         output_deriv.Scale(-1.0);

@@ -476,7 +476,7 @@ class XconfigOutputLayer(XconfigLayerBase):
                                 "".format(self.config['dim']))
 
         if self.config['objective-type'] != 'linear' and \
-                self.config['objective_type'] != 'quadratic':
+                self.config['objective-type'] != 'quadratic':
             raise RuntimeError("In output-layer, objective-type has"
                                 " invalid value {0}"
                                 "".format(self.config['objective-type']))
@@ -491,7 +491,7 @@ class XconfigOutputLayer(XconfigLayerBase):
     # comment in output_name for the reason why.
     def auxiliary_outputs(self):
 
-        return ['log-softmax']
+        return ['log-softmax','fixed-scale','affine']
 
     def output_name(self, auxiliary_output = None):
 
@@ -969,7 +969,9 @@ class XconfigRegressorLayer(XconfigLayerBase):
                        'regressor-scale-file' : '',
                        'objective-type' : 'linear',
                        'supervision-type' : 'unsupervised',
-                       'output-delay' : 0
+                       'output-delay' : 0,
+                       'negate-file' : '',
+                       'add-exp' : True
                       }
 
     def check_configs(self):
@@ -978,7 +980,7 @@ class XconfigRegressorLayer(XconfigLayerBase):
             raise RuntimeError("In output-layer, dim have invalid value {0}"
                                "".format(self.config['dim']))
         if self.config['objective-type'] != 'linear' and \
-                self.config['objective_type'] != 'quadratic':
+                self.config['objective-type'] != 'quadratic':
             raise RuntimeError("In output-layer, objective-type has"
                                 " invalid value {0}"
                                 "".format(self.config['objective-type']))
@@ -1032,12 +1034,25 @@ class XconfigRegressorLayer(XconfigLayerBase):
         bias_stddev = self.config['bias-stddev']
         output_delay = self.config['output-delay']
         max_change = self.config['max-change']
+        negate_file = self.config['negate-file']
+        add_exp = self.config['add-exp']
         # Note: If objective-type is linear the
         # output is input1.input2  and for quadratic objective
         # the output is 0.5(input1-input2).
         assert(input_dim1 == input_dim2)
         assert(output_dim == input_dim1)
         for config_name in [ 'ref', 'final' ]:
+            input1_node = descriptor_final_string1
+            if add_exp is True:
+                line = ('component name={0}.exp type=ExpComponent'
+                        ''.format(descriptor_final_string1))
+                ans.append((config_name, line))
+                line = ('component-node name={0}.exp component={0}.exp'
+                        ' input={0}'
+                        ''.format(descriptor_final_string1))
+                ans.append((config_name, line))
+                input1_node = '{0}.exp'.format(descriptor_final_string1)
+
             if objective_type == 'linear':
                 line = ('component name={0}.regressor.sum'
                         ' type=ElementwiseProductComponent'
@@ -1048,22 +1063,22 @@ class XconfigRegressorLayer(XconfigLayerBase):
                 line = ('component-node name={0}.regressor.sum'
                         ' component={0}.regressor.sum'
                         ' input=Append({1}, {2})'
-                        ''.format(self.name, descriptor_final_string1,
+                        ''.format(self.name, input1_node,
                                   descriptor_final_string2))
                 ans.append((config_name, line))
-            else:
+            elif objective_type == 'quadratic':
                 # For quadratic objective, the output is 0.5(-input1+input2)^2
-                negate_file_str = open('negate.vec','w')
-                print("[ {0} ]".format((-1 for  i in  range(input_dim1))),
-                      file=negate_file_str)
+                if negate_file is  '':
+                   raise RuntimeError("neaget-file is required to compute (x-y)^2.")
+
                 line = ('component name={0}.negate_regressor_input'
-                        ' type=FixedScaleComponent scales=negate.vec'
-                        ''.format(self.name))
+                        ' type=FixedScaleComponent scales={1}'
+                        ''.format(self.name, negate_file))
                 ans.append((config_name, line))
                 line = ('component-node name={0}.negate_regressor_input'
                         ' component={0}.negate_regressor_input'
                         ' input={1}'
-                        ''.format(self.name, descriptor_final_string2))
+                        ''.format(self.name, descriptor_final_string1))
                 ans.append((config_name, line))
 
                 line = ('component name={0}.regressor.sum'
@@ -1075,6 +1090,7 @@ class XconfigRegressorLayer(XconfigLayerBase):
                         ' input=Sum({0}.negate_regressor_input, {1})'
                         ''.format(self.name, descriptor_final_string2))
                 ans.append((config_name, line))
+
 
             cur_node = '{0}.regressor.sum'.format(self.name)
 

@@ -205,7 +205,8 @@ def verify_egs_dir(egs_dir, feat_dim, ivector_dim,
 
 
 def compute_presoftmax_prior_scale(dir, alidir, num_jobs, run_opts,
-                                   presoftmax_prior_scale_power=-0.25):
+                                   presoftmax_prior_scale_power=-0.25,
+                                   scale_factor=1.0):
 
     # getting the raw pdf count
     common_lib.run_job(
@@ -216,7 +217,6 @@ def compute_presoftmax_prior_scale(dir, alidir, num_jobs, run_opts,
                                                num_jobs=num_jobs,
                                                dir=dir,
                                                alidir=alidir))
-
     common_lib.run_job(
         """{command} {dir}/log/sum_pdf_counts.log \
                 vector-sum --binary=false {dir}/pdf_counts.* {dir}/pdf_counts \
@@ -228,8 +228,8 @@ def compute_presoftmax_prior_scale(dir, alidir, num_jobs, run_opts,
     scaled_counts = smooth_presoftmax_prior_scale_vector(
             pdf_counts,
             presoftmax_prior_scale_power=presoftmax_prior_scale_power,
-            smooth=0.01)
-
+            smooth=0.01,
+            scale_factor=scale_factor)
     output_file = "{0}/presoftmax_prior_scale.vec".format(dir)
     common_lib.write_kaldi_matrix(output_file, [scaled_counts])
     common_lib.force_symlink("../presoftmax_prior_scale.vec",
@@ -239,7 +239,8 @@ def compute_presoftmax_prior_scale(dir, alidir, num_jobs, run_opts,
 
 def smooth_presoftmax_prior_scale_vector(pdf_counts,
                                          presoftmax_prior_scale_power=-0.25,
-                                         smooth=0.01):
+                                         smooth=0.01,
+                                         scale_factor=1.0):
     total = sum(pdf_counts)
     average_count = total/len(pdf_counts)
     scales = []
@@ -247,7 +248,7 @@ def smooth_presoftmax_prior_scale_vector(pdf_counts,
         scales.append(math.pow(pdf_counts[i] + smooth * average_count,
                                presoftmax_prior_scale_power))
     num_pdfs = len(pdf_counts)
-    scaled_counts = map(lambda x: x * float(num_pdfs) / sum(scales), scales)
+    scaled_counts = map(lambda x: float(scale_factor) * x * float(num_pdfs) / sum(scales), scales)
     return scaled_counts
 
 
@@ -500,7 +501,11 @@ class CommonParser:
                                  dest='presoftmax_prior_scale_power',
                                  default=-0.25,
                                  help="Scale on presofmax prior")
-
+        self.parser.add_argument("--trainer.prior-scale-factor",
+                                 type=float,
+                                 dest='prior_scale_factor',
+                                 default=1.0,
+                                 help="Scales the computed presoftmax prior.")
         # Parameters for the optimization
         self.parser.add_argument(
             "--trainer.optimization.initial-effective-lrate", type=float,

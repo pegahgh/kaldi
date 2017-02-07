@@ -382,7 +382,15 @@ def train(args, run_opts, background_process_handler):
                    {dir}/init.raw""".format(command=run_opts.command,
                                             raw_init=args.init_raw_model,
                                             dir=args.dir))
+            logger.info("Computing initial vector for FixedScaleComponent"
+                        ", using priors^{prior_scale} and rescaling to"
+                        " average 1".format(
+                            prior_scale=args.presoftmax_prior_scale_power))
 
+            common_train_lib.compute_presoftmax_prior_scale(
+                    args.dir, args.tree_dir, num_jobs, run_opts,
+                    presoftmax_prior_scale_power=args.presoftmax_prior_scale_power,
+                    scale_factor=args.prior_scale_factor)
     if (args.stage <= -1):
         logger.info("Preparing the initial acoustic model.")
         chain_lib.prepare_initial_acoustic_model(args.dir, run_opts)
