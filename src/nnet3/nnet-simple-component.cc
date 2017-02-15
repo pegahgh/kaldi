@@ -2519,8 +2519,8 @@ void ConstantFunctionComponent::UnVectorize(const VectorBase<BaseFloat> &params)
 }
 
 void ExpComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
-                                  const CuMatrixBase<BaseFloat> &in, 
-                                  CuMatrixBase<BaseFloat> *out) const { 
+                                  const CuMatrixBase<BaseFloat> &in,
+                                  CuMatrixBase<BaseFloat> *out) const {
   // Applied exp function
   out->CopyFromMat(in);
   out->ApplyExp();
@@ -2746,7 +2746,7 @@ void NaturalGradientAffineComponent::Write(std::ostream &os,
   WriteBasicType(os, binary, active_scaling_count_);
   WriteToken(os, binary, "<MaxChangeScaleStats>");
   WriteBasicType(os, binary, max_change_scale_stats_);
-  
+
   std::ostringstream ostr_end;
   ostr_end << "</" << Type() << ">"; // e.g. "</NaturalGradientAffineComponent>"
   WriteToken(os, binary, ostr_end.str());
@@ -3137,8 +3137,8 @@ void LogComponent::InitFromConfig(ConfigLine *cfl) {
 }
 
 void LogComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
-                             const CuMatrixBase<BaseFloat> &in, 
-                             CuMatrixBase<BaseFloat> *out) const { 
+                             const CuMatrixBase<BaseFloat> &in,
+                             CuMatrixBase<BaseFloat> *out) const {
   // Apllies log function (x >= epsi ? log(x) : log(epsi)).
   out->CopyFromMat(in);
   out->ApplyFloor(log_floor_);
@@ -3156,9 +3156,9 @@ void LogComponent::Backprop(const std::string &debug_info,
     CuMatrix<BaseFloat> divided_in_value(in_value), floored_in_value(in_value);
     divided_in_value.Set(1.0);
     floored_in_value.CopyFromMat(in_value);
-    floored_in_value.ApplyFloor(log_floor_); // (x > epsi ? x : epsi) 
+    floored_in_value.ApplyFloor(log_floor_); // (x > epsi ? x : epsi)
 
-    divided_in_value.DivElements(floored_in_value); // (x > epsi ? 1/x : 1/epsi) 
+    divided_in_value.DivElements(floored_in_value); // (x > epsi ? 1/x : 1/epsi)
     in_deriv->CopyFromMat(in_value);
     in_deriv->Add(-1.0 * log_floor_); // (x - epsi)
     in_deriv->ApplyHeaviside(); // (x > epsi ? 1 : 0)

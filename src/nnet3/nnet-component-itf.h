@@ -413,17 +413,12 @@ class UpdatableComponent: public Component {
   /// a different value than x will returned.
   BaseFloat LearningRate() const { return learning_rate_; }
 
-  // Sets the learning rate factors to set to this value.
-  virtual void SetLearningRateFactor(BaseFloat lrate_factor) {
-    learning_rate_factor_ = lrate_factor;
-  }
-
   /// Gets per-component max-change value. Note: the components themselves do
   /// not enforce the per-component max-change; it's enforced in class
   /// NnetTrainer by querying the max-changes for each component.
   /// See NnetTrainer::UpdateParamsWithMaxChange() in nnet3/nnet-training.cc.
   BaseFloat MaxChange() const { return max_change_; }
-  
+
   /// Gets the learning rate factor
   BaseFloat LearningRateFactor() const { return learning_rate_factor_; }
 

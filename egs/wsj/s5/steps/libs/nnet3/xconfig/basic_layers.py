@@ -629,7 +629,7 @@ class XconfigBasicLayer(XconfigLayerBase):
         # Here we just list some likely combinations.. you can just add any
         # combinations you want to use, to this list.
         assert first_token in [ 'relu-layer', 'relu-renorm-layer', 'sigmoid-layer',
-                                'tanh-layer' ]
+                                'tanh-layer', 'renorm-relu-layer' ]
         XconfigLayerBase.__init__(self, first_token, key_to_value, prev_names)
 
     def set_default_configs(self):
@@ -653,16 +653,25 @@ class XconfigBasicLayer(XconfigLayerBase):
             raise RuntimeError("target-rms has invalid value {0}"
                                .format(self.config['target-rms']))
 
+    def auxiliary_outputs(self):
+
+        return ['affine', 'renorm', 'relu','tanh']
+
     def output_name(self, auxiliary_output=None):
         # at a later stage we might want to expose even the pre-nonlinearity
         # vectors
-        assert auxiliary_output == None
+        #assert auxiliary_output == None
 
         split_layer_name = self.layer_type.split('-')
         assert split_layer_name[-1] == 'layer'
         last_nonlinearity = split_layer_name[-2]
-        # return something like: layer3.renorm
-        return '{0}.{1}'.format(self.name, last_nonlinearity)
+        if auxiliary_output is None:
+            # return something like: layer3.renorm
+            return '{0}.{1}'.format(self.name, last_nonlinearity)
+        else:
+            if auxiliary_output in self.auxiliary_outputs():
+                node_name = auxiliary_output
+                return  '{0}.{1}'.format(self.name, node_name)
 
     def output_dim(self, auxiliary_output = None):
         output_dim = self.config['dim']
@@ -950,6 +959,10 @@ class XconfigRegressorLayer(XconfigLayerBase):
             'quadratic', for use in regression problems
         supervision-type=unsupervised   :   the only other choice is supervised,
             where supervision is defined  in examples.
+        add-exp : If true, the exponential function applied on input1 before
+                  objective computation.
+        apply-softmax : If true, for linear objective,
+                        softmax(input1).log(softmax(input2) is maximized.
     """
     def __init__(self, first_token, key_to_value, prev_names = None):
 
@@ -971,7 +984,8 @@ class XconfigRegressorLayer(XconfigLayerBase):
                        'supervision-type' : 'unsupervised',
                        'output-delay' : 0,
                        'negate-file' : '',
-                       'add-exp' : True
+                       'add-exp' : False,
+                       'apply-softmax' : False
                       }
 
     def check_configs(self):
@@ -1036,6 +1050,7 @@ class XconfigRegressorLayer(XconfigLayerBase):
         max_change = self.config['max-change']
         negate_file = self.config['negate-file']
         add_exp = self.config['add-exp']
+        apply_softmax = self.config['apply-softmax']
         # Note: If objective-type is linear the
         # output is input1.input2  and for quadratic objective
         # the output is 0.5(input1-input2).
@@ -1043,16 +1058,37 @@ class XconfigRegressorLayer(XconfigLayerBase):
         assert(output_dim == input_dim1)
         for config_name in [ 'ref', 'final' ]:
             input1_node = descriptor_final_string1
+            input2_node = descriptor_final_string2
             if add_exp is True:
-                line = ('component name={0}.exp type=ExpComponent'
-                        ''.format(descriptor_final_string1))
+                line = ('component name={0}.exp type=ExpComponent dim={1}'
+                        ''.format(descriptor_final_string1, input_dim1))
                 ans.append((config_name, line))
                 line = ('component-node name={0}.exp component={0}.exp'
                         ' input={0}'
                         ''.format(descriptor_final_string1))
                 ans.append((config_name, line))
                 input1_node = '{0}.exp'.format(descriptor_final_string1)
-
+            if apply_softmax is True:
+                # apply softmax on input1 and log-softmax on input1.
+                line = ('component name={0}.softmax '
+                        'type=SoftmaxComponent dim={1}'
+                        ''.format(self.name, input_dim1))
+                ans.append((config_name, line))
+                line = ('component-node name={0}.softmax '
+                        'component={0}.softmax input={1}'
+                        ''.format(self.name, input1_node))
+                ans.append((config_name, line))
+                line = ('component name={0}.log-softmax '
+                        'type=LogSoftmaxComponent dim={1}'
+                        ''.format(self.name, input_dim2))
+                ans.append((config_name, line))
+                line = ('component-node name={0}.log-softmax '
+                        'component={0}.log-softmax input={1}'
+                        ''.format(self.name, input2_node))
+                ans.append((config_name, line))
+                input1_node = '{0}.softmax'.format(self.name)
+                input2_node = '{0}.log-softmax'.format(self.name)
+                assert(add_exp is False and objective_type == 'linear')
             if objective_type == 'linear':
                 line = ('component name={0}.regressor.sum'
                         ' type=ElementwiseProductComponent'
@@ -1064,7 +1100,7 @@ class XconfigRegressorLayer(XconfigLayerBase):
                         ' component={0}.regressor.sum'
                         ' input=Append({1}, {2})'
                         ''.format(self.name, input1_node,
-                                  descriptor_final_string2))
+                                  input2_node))
                 ans.append((config_name, line))
             elif objective_type == 'quadratic':
                 # For quadratic objective, the output is 0.5(-input1+input2)^2
