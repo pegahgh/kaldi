@@ -87,11 +87,16 @@ class PnormComponent: public Component {
 // "Dropout: A Simple Way to Prevent Neural Networks from Overfitting".
 class DropoutComponent : public RandomComponent {
  public:
-  void Init(int32 dim, BaseFloat dropout_proportion = 0.0);
+  void Init(int32 dim, BaseFloat dropout_proportion = 0.0,
+            bool dropout_per_frame = false);
 
-  DropoutComponent(int32 dim, BaseFloat dropout = 0.0) { Init(dim, dropout); }
+  DropoutComponent(int32 dim, BaseFloat dropout = 0.0,
+                   bool dropout_per_frame = false) {
+    Init(dim, dropout, dropout_per_frame);
+  }
 
-  DropoutComponent(): dim_(0), dropout_proportion_(0.0) { }
+  DropoutComponent(): dim_(0), dropout_proportion_(0.0),
+                      dropout_per_frame_(false) { }
 
   virtual int32 Properties() const {
     return kLinearInInput|kBackpropInPlace|kSimpleComponent|kBackpropNeedsInput|kBackpropNeedsOutput;
@@ -120,17 +125,20 @@ class DropoutComponent : public RandomComponent {
                         Component *to_update,
                         CuMatrixBase<BaseFloat> *in_deriv) const;
   virtual Component* Copy() const { return new DropoutComponent(dim_,
-                                                                dropout_proportion_); }
+                                               dropout_proportion_,
+                                               dropout_per_frame_); }
   virtual std::string Info() const;
 
-  void SetDropoutProportion(BaseFloat dropout_proportion) { dropout_proportion_ = dropout_proportion; }
+  void SetDropoutProportion(BaseFloat dropout_proportion) {
+    dropout_proportion_ = dropout_proportion;
+  }
 
  private:
   int32 dim_;
   /// dropout-proportion is the proportion that is dropped out,
   /// e.g. if 0.1, we set 10% to zero value.
   BaseFloat dropout_proportion_;
-
+  bool dropout_per_frame_;
 };
 
 class ElementwiseProductComponent: public Component {
@@ -413,7 +421,6 @@ class AffineComponent: public UpdatableComponent {
   // Some functions from base-class UpdatableComponent.
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
-  virtual void SetZero(bool treat_as_gradient);
   virtual void PerturbParams(BaseFloat stddev);
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
@@ -514,7 +521,6 @@ class BlockAffineComponent : public UpdatableComponent {
   // Functions from base-class UpdatableComponent.
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
-  virtual void SetZero(bool treat_as_gradient);
   virtual void PerturbParams(BaseFloat stddev);
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
@@ -577,7 +583,6 @@ class RepeatedAffineComponent: public UpdatableComponent {
   // Some functions from base-class UpdatableComponent.
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
-  virtual void SetZero(bool treat_as_gradient);
   virtual void PerturbParams(BaseFloat stddev);
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
@@ -1294,7 +1299,6 @@ class PerElementScaleComponent: public UpdatableComponent {
   // Some functions from base-class UpdatableComponent.
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
-  virtual void SetZero(bool treat_as_gradient);
   virtual void PerturbParams(BaseFloat stddev);
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
@@ -1366,7 +1370,6 @@ class PerElementOffsetComponent: public UpdatableComponent {
   // Some functions from base-class UpdatableComponent.
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
-  virtual void SetZero(bool treat_as_gradient);
   virtual void PerturbParams(BaseFloat stddev);
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
@@ -1391,8 +1394,9 @@ class PerElementOffsetComponent: public UpdatableComponent {
 // i.e. its output does not depend on its input.  It is the same as
 // an affine component with the linear term fixed at zero.
 // It is optionally trainable, and optionally you can use natural
-// gradient.  The input is required only because the framework
-// requires components to have an input.
+// gradient.  The input is required only because it's more convenient
+// to make SimpleComponents [but see ConstantComponent, which requires
+// no inputs].
 class ConstantFunctionComponent: public UpdatableComponent {
  public:
   virtual int32 InputDim() const { return input_dim_; }
@@ -1434,7 +1438,6 @@ class ConstantFunctionComponent: public UpdatableComponent {
   // Some functions from base-class UpdatableComponent.
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
-  virtual void SetZero(bool treat_as_gradient);
   virtual void PerturbParams(BaseFloat stddev);
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
@@ -1637,7 +1640,6 @@ class ConvolutionComponent: public UpdatableComponent {
   // Some functions from base-class UpdatableComponent.
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
-  virtual void SetZero(bool treat_as_gradient);
   virtual void PerturbParams(BaseFloat stddev);
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
@@ -1805,7 +1807,6 @@ class LstmNonlinearityComponent: public UpdatableComponent {
   // Some functions from base-class UpdatableComponent.
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
-  virtual void SetZero(bool treat_as_gradient);
   virtual void PerturbParams(BaseFloat stddev);
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
@@ -2061,9 +2062,9 @@ class CompositeComponent: public UpdatableComponent {
   // Some functions from base-class UpdatableComponent.
   virtual void SetUnderlyingLearningRate(BaseFloat lrate);
   virtual void SetActualLearningRate(BaseFloat lrate);
+  virtual void SetAsGradient();
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
-  virtual void SetZero(bool treat_as_gradient);
   virtual void PerturbParams(BaseFloat stddev);
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;

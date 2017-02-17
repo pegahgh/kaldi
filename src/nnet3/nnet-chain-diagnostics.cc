@@ -37,8 +37,8 @@ NnetChainComputeProb::NnetChainComputeProb(
     num_minibatches_processed_(0) {
   if (nnet_config_.compute_deriv) {
     deriv_nnet_ = new Nnet(nnet_);
-    bool is_gradient = true;  // force simple update
-    SetZero(is_gradient, deriv_nnet_);
+    ScaleNnet(0.0, deriv_nnet_);
+    SetNnetAsGradient(deriv_nnet_); // force simple update
   }
 }
 
@@ -56,8 +56,8 @@ void NnetChainComputeProb::Reset() {
   num_minibatches_processed_ = 0;
   objf_info_.clear();
   if (deriv_nnet_) {
-    bool is_gradient = true;
-    SetZero(is_gradient, deriv_nnet_);
+    ScaleNnet(0.0, deriv_nnet_);
+    SetNnetAsGradient(deriv_nnet_);
   }
 }
 
@@ -82,10 +82,10 @@ void NnetChainComputeProb::Compute(const NnetChainExample &chain_eg) {
                         nnet_, deriv_nnet_);
   // give the inputs to the computer object.
   computer.AcceptInputs(nnet_, chain_eg.inputs);
-  computer.Forward();
+  computer.Run();
   this->ProcessOutputs(chain_eg, &computer);
   if (nnet_config_.compute_deriv)
-    computer.Backward();
+    computer.Run();
 }
 
 void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
