@@ -136,7 +136,7 @@ void NnetChainTrainer::ProcessOutputs(const NnetChainExample &eg,
       nnet_output_deriv.Scale(opts_.chain_config.chain_regularize);
       tot_objf *= opts_.chain_config.chain_regularize;
     }
-    computer->AcceptOutputDeriv(sup.name, &nnet_output_deriv);
+    computer->AcceptInput(sup.name, &nnet_output_deriv);
 
     objf_info_[sup.name].UpdateStats(sup.name, opts_.nnet_config.print_interval,
                                      num_minibatches_processed_++,

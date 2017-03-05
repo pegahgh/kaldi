@@ -84,7 +84,7 @@ void NnetComputeProb::ProcessOutputs(const NnetExample &eg,
     int32 node_index = nnet_.GetNodeIndex(io.name);
     if (node_index < 0)
       KALDI_ERR << "Network has no output named " << io.name;
-    ObjectiveType obj_type = nnet_.GetNode(node_index).u.objective_type;
+    ObjectiveType obj_type = nnet_.GetNode(node_index).u.objective_types.objective_type;
     if (nnet_.IsOutputNode(node_index)) {
       const CuMatrixBase<BaseFloat> &output = computer->GetOutput(io.name);
       if (output.NumCols() != io.features.NumCols()) {
@@ -126,7 +126,7 @@ bool NnetComputeProb::PrintTotalStats() const {
       const std::string &name = iter->first;
       int32 node_index = nnet_.GetNodeIndex(name);
       KALDI_ASSERT(node_index >= 0);
-      ObjectiveType obj_type = nnet_.GetNode(node_index).u.objective_type;
+      ObjectiveType obj_type = nnet_.GetNode(node_index).u.objective_types.objective_type;
       const SimpleObjectiveInfo &info = iter->second;
       KALDI_LOG << "Overall "
                 << (obj_type == kLinear ? "log-likelihood" : "objective")

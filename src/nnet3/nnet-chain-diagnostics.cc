@@ -136,7 +136,7 @@ void NnetChainComputeProb::ProcessOutputs(const NnetChainExample &eg,
     if (nnet_config_.compute_deriv) {
       if (chain_config_.chain_regularize != 1.0)
         nnet_output_deriv.Scale(chain_config_.chain_regularize);
-      computer->AcceptOutputDeriv(sup.name, &nnet_output_deriv);
+      computer->AcceptInput(sup.name, &nnet_output_deriv);
     }
 
     if (use_xent) {

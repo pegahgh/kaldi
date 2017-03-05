@@ -244,6 +244,26 @@ def get_dropout_edit_string(dropout_schedule, data_fraction, iter_):
     return ("""nnet3-copy --edits='{edits}' - - |""".format(
         edits=";".join(edit_config_lines)))
 
+def get_regularizer_edit_string(regularizer_schedule, data_fraction, iter_):
+    """Return a regularizer edit option line for nnet3-chain-train to
+    set regularizer values for each output node during training.
+    Arguments:
+        regularizer_schedule: Value for the --trainer.dropout-schedule option.
+    """
+    if regularizer_schedule is None:
+        return ""
+    regularizers = _get_dropout_proportions(
+        regularizer_schedule, data_fraction)
+    edit_config_lines = []
+    regularizer_info = []
+
+    for component_name, regularizer in regularizers:
+        edit_config_lines.append(
+            "set-regularizer-value name={0} value={1}".format(component_name, regularizer))
+        regularizer_info.append("pattern/regularizer-value={0}/{1}".format(
+            component_name, regularizer))
+    logger.info("On iteration %d, %s", iter_, ', '.join(regularizer_info))
+    return edit_config_lines
 
 def _self_test():
     """Run self-test.

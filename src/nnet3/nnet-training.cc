@@ -431,7 +431,7 @@ void ComputeObjectiveFunction(ObjectiveType objective_type,
                 << " not handled.";
   }
   if (supply_deriv)
-    computer->AcceptOutputDeriv(output_name, &output_deriv);
+    computer->AcceptInput(output_name, &output_deriv);
 }
 
 } // namespace nnet3

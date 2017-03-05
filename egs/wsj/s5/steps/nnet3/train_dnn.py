@@ -204,9 +204,10 @@ def train(args, run_opts, background_process_handler):
                     "preconditioning matrix")
         common_lib.run_job(
             """{command} {dir}/log/nnet_init.log \
-                    nnet3-init --srand=-2 {dir}/configs/init.config \
+                    nnet3-init --srand={srand} {dir}/configs/init.config \
                     {dir}/init.raw""".format(command=run_opts.command,
-                                             dir=args.dir))
+                                             dir=args.dir,
+                                             srand=args.srand))
 
     default_egs_dir = '{0}/egs'.format(args.dir)
     if (args.stage <= -4) and args.egs_dir is None:
@@ -232,7 +233,7 @@ def train(args, run_opts, background_process_handler):
 
     [egs_left_context, egs_right_context,
      frames_per_eg_str, num_archives] = (
-        common_train_lib.verify_egs_dir(egs_dir, feat_dim, 
+        common_train_lib.verify_egs_dir(egs_dir, feat_dim,
                                         ivector_dim, ivector_id,
                                         left_context, right_context))
     assert(str(args.frames_per_eg) == frames_per_eg_str)

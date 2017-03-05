@@ -164,7 +164,6 @@ def get_args():
                         default=None, action=common_lib.NullstrToNoneAction,
                         help="If specified, this model used as init.raw "
                         "instead of generating init.raw using init.config.")
-
     # General options
     parser.add_argument("--feat-dir", type=str, required=True,
                         help="Directory with features used for training "
@@ -319,9 +318,9 @@ def train(args, run_opts, background_process_handler):
         chain_lib.create_denominator_fst(args.dir, args.tree_dir, run_opts)
 
     if (args.stage <= -4):
-        if args.init_raw_model is None:
+        if os.path.exits("{0}/configs/init.config".format(args.dir)):
             logger.info("Initializing a basic network for estimating "
-                      "epreconditioning matrix")
+                      "preconditioning matrix")
             common_lib.run_kaldi_command(
               """{command} {dir}/log/nnet_init.log \
                       nnet3-init --srand=-2 {dir}/configs/init.config \
@@ -367,7 +366,7 @@ def train(args, run_opts, background_process_handler):
 
     [egs_left_context, egs_right_context,
      frames_per_eg_str, num_archives] = (
-        common_train_lib.verify_egs_dir(egs_dir, feat_dim, 
+        common_train_lib.verify_egs_dir(egs_dir, feat_dim,
                                         ivector_dim, ivector_id,
                                         egs_left_context, egs_right_context,
                                         egs_left_context_initial,
@@ -385,7 +384,7 @@ def train(args, run_opts, background_process_handler):
     common_train_lib.copy_egs_properties_to_exp_dir(egs_dir, args.dir)
 
     if (args.stage <= -2):
-        if args.init_raw_model is None:
+        if os.path.exists("{0}/configs/init.config".format(args.dir)):
             logger.info('Computing the preconditioning matrix for input features')
 
             chain_lib.compute_preconditioning_matrix(
