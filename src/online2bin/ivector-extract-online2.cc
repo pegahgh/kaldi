@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
     std::string spk2cmn_offset;
     g_num_threads = 8;
     bool repeat = false;
-    
+    int32 offset_type = 0; 
     po.Register("num-threads", &g_num_threads,
                 "Number of threads to use for computing derived variables "
                 "of iVector extractor, at process start-up.");
@@ -67,6 +67,9 @@ int main(int argc, char *argv[]) {
                 "Map from speaker to matrix of offsets. If provided, the ivector "
                 "extracted for all offsets of input features for each speaker "
                 "and they are appended together in output.");
+    po.Register("offset-type", &offset_type, " 0: same offset for all frame for"
+                " all utt correspond to single speaker, 1: per-frame offsets");
+
     po.Read(argc, argv);
     
     if (po.NumArgs() != 3) {
@@ -90,22 +93,32 @@ int main(int argc, char *argv[]) {
     BaseFloatMatrixWriter ivector_writer(ivectors_wspecifier);
     
     RandomAccessBaseFloatMatrixReader spk2cmn_offset_reader(spk2cmn_offset);
-
     for (; !spk2utt_reader.Done(); spk2utt_reader.Next()) {
       std::string spk = spk2utt_reader.Key();
       const std::vector<std::string> &uttlist = spk2utt_reader.Value();
-      int32 num_cmn_offset = 1;
+      int32 num_cmn_offset = 1,
+        feat_dim = feature_reader.Value(uttlist[0]).NumCols();
       const Matrix<BaseFloat> *cmn_offset = NULL;
-      if (!spk2cmn_offset.empty()) {
-        if (!spk2cmn_offset_reader.HasKey(spk)) {
-          KALDI_WARN << "No cmn offset provided for speaker " << spk;
-          num_err++;
-          continue;
-        } else {
-          cmn_offset = &(spk2cmn_offset_reader.Value(spk));
-          num_cmn_offset = cmn_offset->NumRows();
+
+      // offse-type=0: offset.scp is mapping from speaker to offsets.
+      if (offset_type == 0) { 
+        if (!spk2cmn_offset.empty()) {
+          if (!spk2cmn_offset_reader.HasKey(spk)) {
+            KALDI_WARN << "No cmn offset provided for speaker " << spk;
+            num_err++;
+            continue;
+          } else {
+            cmn_offset = &(spk2cmn_offset_reader.Value(spk));
+            num_cmn_offset = cmn_offset->NumRows();
+          }
         }
+      } else if (offset_type == 1) {  
+        KALDI_ASSERT(spk2cmn_offset_reader.Value(uttlist[0]).NumCols() 
+          % feat_dim == 0);
+        num_cmn_offset = spk2cmn_offset_reader.Value(uttlist[0]).NumCols() 
+          / feat_dim + 1;
       }
+
       std::vector<OnlineIvectorExtractorAdaptationState*> adaptation_states(num_cmn_offset);
       for (size_t offset_ind = 0; offset_ind < num_cmn_offset; offset_ind++)
         adaptation_states[offset_ind] = new OnlineIvectorExtractorAdaptationState(ivector_info);
@@ -118,6 +131,16 @@ int main(int argc, char *argv[]) {
           num_err++;
           continue;
         }
+        // offse-type=1 => offsets are per-frame offsets and
+        // offset.scp is the mapping from speaker to utterances.
+        if (offset_type == 1) {
+          if (!spk2cmn_offset_reader.HasKey(utt)) {
+            KALDI_WARN << "Did not find offset for utterance " << utt;
+            num_err++;
+            continue;
+          }
+          cmn_offset = &(spk2cmn_offset_reader.Value(utt));
+        }
         const Matrix<BaseFloat> &feats = feature_reader.Value(utt);
 
         int32 T = feats.NumRows(),
@@ -129,9 +152,17 @@ int main(int argc, char *argv[]) {
 
         for (size_t offset_ind = 0; offset_ind < num_cmn_offset; offset_ind++) { 
           Matrix<BaseFloat> shifted_feats(feats);
-          if (cmn_offset != NULL)
-            shifted_feats.AddVecToRows(1.0, cmn_offset->Row(offset_ind));
-
+          if (cmn_offset != NULL) {
+            if (offset_type == 0)
+              shifted_feats.AddVecToRows(1.0, cmn_offset->Row(offset_ind));
+            else if (offset_type == 1) {
+              if (offset_ind > 0)
+                //The 1st set of ivector is extracted using original features.
+                shifted_feats.AddMat(1.0, 
+                  cmn_offset->ColRange(feat_dim * (offset_ind - 1), feat_dim));
+            } else 
+              KALDI_ERR << "Wrong random offset type " << offset_type;
+          }
           OnlineMatrixFeature matrix_feature(shifted_feats);
 
           OnlineIvectorFeature ivector_feature(ivector_info,

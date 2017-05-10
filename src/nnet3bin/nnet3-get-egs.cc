@@ -33,6 +33,7 @@ namespace nnet3 {
 static void ProcessFile(const MatrixBase<BaseFloat> &feats,
                         const MatrixBase<BaseFloat> *ivector_feats,
                         const MatrixBase<BaseFloat> *cmn_offsets,
+                        int32 offset_type,
                         const Posterior &pdf_post,
                         const std::string &utt_id,
                         bool compress,
@@ -44,7 +45,6 @@ static void ProcessFile(const MatrixBase<BaseFloat> &feats,
                         int64 *num_egs_written,
                         NnetExampleWriter *example_writer) {
   KALDI_ASSERT(feats.NumRows() == static_cast<int32>(pdf_post.size()));
-  
   for (int32 t = 0; t < feats.NumRows(); t += frames_per_eg) {
 
     // actual_frames_per_eg is the number of frames with nonzero
@@ -57,8 +57,11 @@ static void ProcessFile(const MatrixBase<BaseFloat> &feats,
 
     int32 tot_frames = left_context + frames_per_eg + right_context;
 
-    Matrix<BaseFloat> input_frames(tot_frames, feats.NumCols(), kUndefined);
-    
+    Matrix<BaseFloat> input_frames(tot_frames, feats.NumCols(), kUndefined),
+      offset_frames;
+    if (cmn_offsets) 
+      offset_frames.Resize(tot_frames, cmn_offsets->NumCols(), kUndefined);
+     
     // Set up "input_frames".
     for (int32 j = -left_context; j < frames_per_eg + right_context; j++) {
       int32 t2 = j + t;
@@ -67,6 +70,11 @@ static void ProcessFile(const MatrixBase<BaseFloat> &feats,
       SubVector<BaseFloat> src(feats, t2),
           dest(input_frames, j + left_context);
       dest.CopyFromVec(src);
+      if (cmn_offsets && offset_type == 1) {
+        SubVector<BaseFloat> src_offset(*cmn_offsets, t2),
+            dest_offset(offset_frames, j + left_context);
+        dest_offset.CopyFromVec(src_offset);
+      }
     }
 
     NnetExample eg;
@@ -79,8 +87,17 @@ static void ProcessFile(const MatrixBase<BaseFloat> &feats,
     // num_rows is num of cmn offsets and num_cols is feature dim. e.g. 40.
     int32 num_cmn_offsets = 1;
     if (cmn_offsets != NULL) {
-      num_cmn_offsets = cmn_offsets->NumRows();
-      eg.io.push_back(NnetIo("offset", *cmn_offsets));
+      if (offset_type == 0) {
+        num_cmn_offsets = cmn_offsets->NumRows();
+        eg.io.push_back(NnetIo("offset", *cmn_offsets));
+      } else if (offset_type == 1) {
+        KALDI_ASSERT(cmn_offsets->NumCols() % feats.NumCols() == 0);
+        num_cmn_offsets = cmn_offsets->NumCols() / feats.NumCols() + 1;
+        eg.io.push_back(NnetIo("offset", - left_context, offset_frames)); 
+      } else {
+        KALDI_ERR << "Wrong offset-type " << offset_type;
+      }
+
     }
 
     // if applicable, add the iVector feature.
@@ -155,7 +172,7 @@ int main(int argc, char *argv[]) {
     bool compress = true;
     int32 num_pdfs = -1, left_context = 0, right_context = 0,
         num_frames = 1, length_tolerance = 100;
-        
+    int32 offset_type = 0;    
     std::string ivector_rspecifier, utt2cmn_offsets_rspecifier;
     
     ParseOptions po(usage);
@@ -175,6 +192,10 @@ int main(int argc, char *argv[]) {
                 "difference in num-frames between feat and ivector matrices");
     po.Register("utt2cmn-offsets", &utt2cmn_offsets_rspecifier,
                 "It maps utt to the matrix of offsets, one offset per row.");
+
+    po.Register("offset-type", &offset_type, " 0: same offset for all frames of"
+                " utts for single speaker, 1: per-frame ubm offsets");
+
     po.Read(argc, argv);
 
     if (po.NumArgs() != 3) {
@@ -246,7 +267,7 @@ int main(int argc, char *argv[]) {
           continue;
         }
           
-        ProcessFile(feats, ivector_feats, cmn_offsets, pdf_post, key, compress,
+        ProcessFile(feats, ivector_feats, cmn_offsets, offset_type, pdf_post, key, compress,
                     num_pdfs, left_context, right_context, num_frames,
                     &num_frames_written, &num_egs_written,
                     &example_writer);

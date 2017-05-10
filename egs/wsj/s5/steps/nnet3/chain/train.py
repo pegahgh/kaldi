@@ -46,6 +46,10 @@ def GetArgs():
     parser.add_argument("--feat.cmvn-opts", type=str, dest='cmvn_opts',
                         default = None, action = train_lib.NullstrToNoneAction,
                         help="A string specifying '--norm-means' and '--norm-vars' values")
+    parser.add_argument("--offset-type", type=int,
+                        default = -1,
+                        choices = [-1, 0, 1],
+                        help="-1: no offsets; 0: per-speaker offset; 1: per-frame ubm offset.");
 
     # egs extraction options
     parser.add_argument("--egs.chunk-width", type=int, dest='chunk_width',
@@ -332,7 +336,8 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
                    momentum, max_param_change,
                    shuffle_buffer_size, num_chunk_per_minibatch,
                    frame_subsampling_factor, truncate_deriv_weights,
-                   cache_io_opts, run_opts):
+                   cache_io_opts, run_opts,
+                   num_cmn_offsets, offset_type=None):
       # We cannot easily use a single parallel SGE job to do the main training,
       # because the computation of which archive and which --frame option
       # to use for each job is a little complex, so we spawn each one separately.
@@ -357,6 +362,18 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
         else:
             cur_cache_io_opts = cache_io_opts
 
+        offset_num = -1
+        # k = num_frame_shifts * num_archives * epoch_index + num_archives * frame_shift + archive_index
+        # offset_num = (num_frame_shifts * epoch_index + frame_shift + archive_index) % num_cmn_offsets
+        # if gcd(num_frame_shifts, num_cmn_offsets) = 1
+        # offfset_num for fixed (frame_shift, archive_index) = (f1,a1) in different epochs
+        # are different.
+        # Also different two consequent shifts in same archive have different offsets.
+        if num_cmn_offsets > 0:
+          offset_num = ((k / num_archives) + (k % num_archives)) % num_cmn_offsets
+        offset_opts=""
+        if offset_type is not None:
+          offset_opts="--offset-type={0}".format(offset_type)
         process_handle = train_lib.RunKaldiCommand("""
 {command} {train_queue_opt} {dir}/log/train.{iter}.{job}.log \
   nnet3-chain-train {parallel_train_opts} \
@@ -366,7 +383,7 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
   --print-interval=10 --momentum={momentum} \
   --max-param-change={max_param_change} \
    "{raw_model}" {dir}/den.fst \
-  "ark,bg:nnet3-chain-copy-egs --truncate-deriv-weights={trunc_deriv} --frame-shift={fr_shft} ark:{egs_dir}/cegs.{archive_index}.ark ark:- | nnet3-chain-shuffle-egs --buffer-size={shuffle_buffer_size} --srand={srand} ark:- ark:-| nnet3-chain-merge-egs --minibatch-size={num_chunk_per_minibatch} ark:- ark:- |" \
+  "ark,bg:nnet3-chain-copy-egs --select-feature-offset={offset_num} {offset_opts} --truncate-deriv-weights={trunc_deriv} --frame-shift={fr_shft} ark:{egs_dir}/cegs.{archive_index}.ark ark:- | nnet3-chain-shuffle-egs --buffer-size={shuffle_buffer_size} --srand={srand} ark:- ark:-| nnet3-chain-merge-egs --minibatch-size={num_chunk_per_minibatch} ark:- ark:- |" \
   {dir}/{next_iter}.{job}.raw
           """.format(command = run_opts.command,
                      train_queue_opt = run_opts.train_queue_opt,
@@ -382,7 +399,9 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
                      egs_dir = egs_dir, archive_index = archive_index,
                      shuffle_buffer_size = shuffle_buffer_size,
                      cache_io_opts = cur_cache_io_opts,
-                     num_chunk_per_minibatch = num_chunk_per_minibatch),
+                     num_chunk_per_minibatch = num_chunk_per_minibatch,
+                     offset_num = offset_num,
+                     offset_opts = offset_opts if offset_type is not None else ''),
           wait = False)
 
         processes.append(process_handle)
@@ -408,7 +427,8 @@ def TrainOneIteration(dir, iter, srand, egs_dir,
                       l2_regularize, xent_regularize, leaky_hmm_coefficient,
                       momentum, max_param_change, shuffle_buffer_size,
                       frame_subsampling_factor, truncate_deriv_weights,
-                      run_opts):
+                      run_opts,
+                      num_cmn_offsets, offset_type):
 
     # Set off jobs doing some diagnostics, in the background.
     # Use the egs dir from the previous iteration for the diagnostics
@@ -468,7 +488,8 @@ def TrainOneIteration(dir, iter, srand, egs_dir,
                    momentum, cur_max_param_change,
                    shuffle_buffer_size, cur_num_chunk_per_minibatch,
                    frame_subsampling_factor, truncate_deriv_weights,
-                   cache_io_opts, run_opts)
+                   cache_io_opts, run_opts,
+                   num_cmn_offsets, offset_type)
 
     [models_to_average, best_model] = train_lib.GetSuccessfulModels(num_jobs, '{0}/log/train.{1}.%.log'.format(dir,iter))
     nnets_list = []
@@ -532,6 +553,10 @@ def Train(args, run_opts):
     num_jobs = train_lib.GetNumberOfJobs(args.tree_dir)
     feat_dim = train_lib.GetFeatDim(args.feat_dir)
     ivector_dim = train_lib.GetIvectorDim(args.online_ivector_dir)
+    num_cmn_offsets = train_lib.GetNumCmnOffsets(args.feat_dir, args.offset_type)
+    if num_cmn_offsets > 0:
+      assert(ivector_dim % num_cmn_offsets == 0)
+      ivector_dim = ivector_dim / num_cmn_offsets
 
     # split the training data into parts for individual jobs
     # we will use the same number of jobs as that used for alignment
@@ -587,7 +612,8 @@ def Train(args, run_opts):
                                     frames_per_iter = args.frames_per_iter,
                                     srand = args.srand,
                                     transform_dir = args.transform_dir,
-                                    stage = args.egs_stage)
+                                    stage = args.egs_stage,
+                                    offset_type = args.offset_type)
 
     if args.egs_dir is None:
         egs_dir = default_egs_dir
@@ -607,10 +633,12 @@ def Train(args, run_opts):
 
     if (args.stage <= -2):
         logger.info('Computing the preconditioning matrix for input features')
-
+        num_cmn_offsets = train_lib.GetNumCmnOffsets(args.feat_dir, args.offset_type)
         chain_lib.ComputePreconditioningMatrix(args.dir, egs_dir, num_archives, run_opts,
                                                max_lda_jobs = args.max_lda_jobs,
-                                               rand_prune = args.rand_prune)
+                                               rand_prune = args.rand_prune,
+                                               select_feature_offset = (0 if num_cmn_offsets > 0 else -1),
+                                               offset_type = args.offset_type)
 
     if (args.stage <= -1):
         logger.info("Preparing the initial acoustic model.")
@@ -664,7 +692,8 @@ def Train(args, run_opts):
                               args.momentum, args.max_param_change,
                               args.shuffle_buffer_size,
                               args.frame_subsampling_factor,
-                              args.truncate_deriv_weights, run_opts)
+                              args.truncate_deriv_weights, run_opts,
+                              num_cmn_offsets, args.offset_type)
             if args.cleanup:
                 # do a clean up everythin but the last 2 models, under certain conditions
                 train_lib.RemoveModel(args.dir, iter-2, num_iters, num_iters_combine,

@@ -19,7 +19,13 @@ set -e -o pipefail
 
 # First the options that are passed through to run_ivector_common.sh
 # (some of which are also used in this script directly).
-stage=0
+# options for random offsets
+use_random_offsets=false
+offset_type=0 # 0 : same offsets for all frames in speaker
+              # 1 : per-frame offset for each frame using ubm posterior.
+ubm_offset=exp/final_ubm # ubm model used for random offset generation
+
+stage=7
 mic=ihm
 nj=30
 min_seg_len=1.55
@@ -60,15 +66,18 @@ local/nnet3/run_ivector_common.sh --stage $stage \
                                   --train-set $train_set \
                                   --gmm $gmm \
                                   --num-threads-ubm $num_threads_ubm \
-                                  --nnet3-affix "$nnet3_affix"
-
+                                  --nnet3-affix "$nnet3_affix" \
+                                  --use-random-offsets $use_random_offsets \
+                                  --offset-type $offset_type --ubm-offset $ubm_offset \
 # Note: the first stage of the following script is stage 8.
+if false; then
 local/nnet3/prepare_lores_feats.sh --stage $stage \
                                    --mic $mic \
                                    --nj $nj \
                                    --min-seg-len $min_seg_len \
                                    --use-ihm-ali $use_ihm_ali \
                                    --train-set $train_set
+fi #100
 
 if $use_ihm_ali; then
   gmm_dir=exp/ihm/${ihm_gmm}
@@ -99,8 +108,8 @@ for f in $gmm_dir/final.mdl $lores_train_data_dir/feats.scp \
   [ ! -f $f ] && echo "$0: expected file $f to exist" && exit 1
 done
 
-
-if [ $stage -le 11 ]; then
+if false; then #100
+if [ $stage -le 12 ]; then
   if [ -f $ali_dir/ali.1.gz ]; then
     echo "$0: alignments in $ali_dir appear to already exist.  Please either remove them "
     echo " ... or use a later --stage option."
@@ -113,7 +122,7 @@ fi
 
 [ ! -f $ali_dir/ali.1.gz ] && echo  "$0: expected $ali_dir/ali.1.gz to exist" && exit 1
 
-if [ $stage -le 12 ]; then
+if [ $stage -le 13 ]; then
   echo "$0: creating lang directory with one state per phone."
   # Create a version of the lang/ directory that has one state per phone in the
   # topo file. [note, it really has two states.. the first one is only repeated
@@ -136,7 +145,7 @@ if [ $stage -le 12 ]; then
   fi
 fi
 
-if [ $stage -le 13 ]; then
+if [ $stage -le 14 ]; then
   # Get the alignments as lattices (gives the chain training more freedom).
   # use the same num-jobs as the alignments
   steps/align_fmllr_lats.sh --nj 100 --cmd "$train_cmd" ${lores_train_data_dir} \
@@ -144,7 +153,7 @@ if [ $stage -le 13 ]; then
   rm $lat_dir/fsts.*.gz # save space
 fi
 
-if [ $stage -le 14 ]; then
+if [ $stage -le 15 ]; then
   # Build a tree using our new topology.  We know we have alignments for the
   # speed-perturbed data (local/nnet3/run_ivector_common.sh made them), so use
   # those.
@@ -157,13 +166,15 @@ if [ $stage -le 14 ]; then
       --leftmost-questions-truncate -1 \
       --cmd "$train_cmd" 4200 ${lores_train_data_dir} data/lang_chain $ali_dir $tree_dir
 fi
+fi #100
 
-if [ $stage -le 15 ]; then
+if [ $stage -le 16 ]; then
   mkdir -p $dir
 
   echo "$0: creating neural net configs";
 
   steps/nnet3/tdnn/make_configs.py \
+    --offset-type $offset_type \
     --self-repair-scale-nonlinearity 0.00001 \
     --feat-dir data/$mic/${train_set}_sp_hires_comb \
     --ivector-dir $train_ivector_dir \
@@ -178,7 +189,7 @@ if [ $stage -le 15 ]; then
    $dir/configs || exit 1;
 fi
 
-if [ $stage -le 16 ]; then
+if [ $stage -le 17 ]; then
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $dir/egs/storage ]; then
     utils/create_split_dir.pl \
      /export/b0{5,6,7,8}/$USER/kaldi-data/egs/ami-$(date +'%m_%d_%H_%M')/s5b/$dir/egs/storage $dir/egs/storage
@@ -210,19 +221,20 @@ if [ $stage -le 16 ]; then
     --feat-dir $train_data_dir \
     --tree-dir $tree_dir \
     --lat-dir $lat_dir \
+    --offset-type $offset_type \
     --dir $dir
 fi
 
 
 graph_dir=$dir/graph_${LM}
-if [ $stage -le 17 ]; then
+if [ $stage -le 18 ]; then
   # Note: it might appear that this data/lang_chain directory is mismatched, and it is as
   # far as the 'topo' is concerned, but this script doesn't read the 'topo' from
   # the lang directory.
   utils/mkgraph.sh --left-biphone --self-loop-scale 1.0 data/lang_${LM} $dir $graph_dir
 fi
 
-if [ $stage -le 18 ]; then
+if [ $stage -le 19 ]; then
   rm $dir/.error 2>/dev/null || true
   for decode_set in dev eval; do
       (

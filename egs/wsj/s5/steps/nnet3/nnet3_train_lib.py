@@ -63,7 +63,7 @@ class KaldiCommandException(Exception):
 def RunKaldiCommand(command, wait = True):
     """ Runs commands frequently seen in Kaldi scripts. These are usually a
         sequence of commands connected by pipes, so we use shell=True """
-    #logger.info("Running the command\n{0}".format(command))
+    logger.info("Running the command\n{0}".format(command))
     p = subprocess.Popen(command, shell = True,
                          stdout = subprocess.PIPE,
                          stderr = subprocess.PIPE)
@@ -132,11 +132,22 @@ def GetFeatDim(feat_dir):
     feat_dim = int(stdout_val)
     return feat_dim
 
-def GetNumCmnOffsets(feat_dir):
+def GetNumCmnOffsets(feat_dir, offset_type=-1):
   num_offsets = -1;
-  if os.path.exists("{feat_dir}/offsets.scp".format(feat_dir = feat_dir)):
-    [stdout_val, stderr_val] = RunKaldiCommand("feat-to-len --print-args=false scp:'head -n 1 {data}/offsets.scp |' ".format(data = feat_dir))
-    num_offsets = int(stdout_val)
+  if offset_type == 0:
+    if os.path.exists("{feat_dir}/offsets.scp".format(feat_dir = feat_dir)):
+      [stdout_val, stderr_val] = RunKaldiCommand("feat-to-len --print-args=false scp:'head -n 1 {data}/offsets.scp |' ".format(data = feat_dir))
+      num_offsets = int(stdout_val)
+  elif offset_type == 1:
+    # per-frame offset, where offsets are appended together.
+    # offset dim = (num_offsets-1) * feat_dim
+    # 1st offset correspond to orig feats with no offset.
+    if os.path.exists("{feat_dir}/offsets.scp".format(feat_dir = feat_dir)):
+      [offset_dim_val, stderr_val] = RunKaldiCommand("feat-to-dim --print-args=false scp:{data}/offsets.scp -".format(data = feat_dir))
+    feat_dim = GetFeatDim(feat_dir)
+    assert(int(offset_dim_val) % feat_dim == 0)
+    # 1 is added as zero offset to process original data. 
+    num_offsets = int(offset_dim_val) / feat_dim + 1
   return num_offsets
 
 def ReadKaldiMatrix(matrix_file):
@@ -219,8 +230,11 @@ def GenerateEgs(data, alidir, egs_dir,
                 run_opts, stage = 0,
                 feat_type = 'raw', online_ivector_dir = None,
                 samples_per_iter = 20000, frames_per_eg = 20, srand = 0,
-                egs_opts = None, cmvn_opts = None, transform_dir = None):
-
+                egs_opts = None, cmvn_opts = None, transform_dir = None,
+                offset_type = None):
+    offset_opt=""
+    if offset_type is not None:
+      offset_opt = "--offset-type {0}".format(offset_type)
     RunKaldiCommand("""
 steps/nnet3/get_egs.sh {egs_opts} \
   --cmd "{command}" \
@@ -234,7 +248,7 @@ steps/nnet3/get_egs.sh {egs_opts} \
   --stage {stage} \
   --samples-per-iter {samples_per_iter} \
   --frames-per-eg {frames_per_eg} \
-  --srand {srand} \
+  --srand {srand} {offset_opt} \
   {data} {alidir} {egs_dir}
       """.format(command = run_opts.command,
           cmvn_opts = cmvn_opts if cmvn_opts is not None else '',
@@ -247,6 +261,7 @@ steps/nnet3/get_egs.sh {egs_opts} \
           stage = stage, samples_per_iter = samples_per_iter,
           frames_per_eg = frames_per_eg, srand = srand, data = data, alidir = alidir,
           egs_dir = egs_dir,
+          offset_opt = offset_opt if offset_type is not None else '',
           egs_opts = egs_opts if egs_opts is not None else '' ))
 
 def VerifyEgsDir(egs_dir, feat_dim, ivector_dim, left_context, right_context):
@@ -271,14 +286,15 @@ def VerifyEgsDir(egs_dir, feat_dim, ivector_dim, left_context, right_context):
 def ComputePreconditioningMatrix(dir, egs_dir, num_lda_jobs, run_opts,
                                  max_lda_jobs = None, rand_prune = 4.0,
                                  lda_opts = None,
-                                 select_feature_offset = -1):
+                                 select_feature_offset = -1,
+                                 offset_type = 0):
     if max_lda_jobs is not None:
         if num_lda_jobs > max_lda_jobs:
             num_lda_jobs = max_lda_jobs
 
     egs_str=""
     if select_feature_offset > -1:
-      egs_str="ark:nnet3-copy-egs --select-feature-offset={0} ark:{1}/egs.JOB.ark ark:- |".format(select_feature_offset, egs_dir)
+      egs_str="ark:nnet3-copy-egs --select-feature-offset={0} --offset-type={2} ark:{1}/egs.JOB.ark ark:- |".format(select_feature_offset, egs_dir, offset_type)
     else:
       egs_str="ark:{0}/egs.JOB.ark".format(egs_dir)
 
@@ -602,7 +618,8 @@ nnet3-combine --num-iters=40 \
     ComputeTrainCvProbabilities(dir, 'combined', egs_dir, run_opts, wait = False)
 
 def ComputeAveragePosterior(dir, iter, egs_dir, num_archives,
-                            prior_subset_size, run_opts, select_feature_offset = -1):
+                            prior_subset_size, run_opts, select_feature_offset = -1,
+                            offset_type = 0):
     # Note: this just uses CPUs, using a smallish subset of data.
     """ Computes the average posterior of the network"""
     import glob
@@ -616,7 +633,7 @@ def ComputeAveragePosterior(dir, iter, egs_dir, num_archives,
    
     egs_str=""
     if select_feature_offset > -1:
-      egs_str="ark:nnet3-copy-egs --select-feature-offset={0} ark:{1}/egs.{2}.ark ark:- |".format(select_feature_offset, egs_dir, egs_part)
+      egs_str="ark:nnet3-copy-egs --offset-type={3} --select-feature-offset={0} ark:{1}/egs.{2}.ark ark:- |".format(select_feature_offset, egs_dir, egs_part, offset_type)
     else:
       egs_str="ark:{0}/egs.{1}.ark".format(egs_dir, egs_part)
     # num_jobs_compute_prior = run_opts.num_jobs_compute_prior 

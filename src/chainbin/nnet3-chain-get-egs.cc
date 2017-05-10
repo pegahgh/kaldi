@@ -41,6 +41,8 @@ namespace nnet3 {
 static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
                         const MatrixBase<BaseFloat> &feats,
                         const MatrixBase<BaseFloat> *ivector_feats,
+                        const MatrixBase<BaseFloat> *cmn_offsets,
+                        int32 offset_type,
                         const chain::Supervision &supervision,
                         const std::string &utt_id,
                         bool compress,
@@ -76,14 +78,34 @@ static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
         num_output_frames * frame_subsampling_factor;
     // add a few frames at the end to make it match up.
     Matrix<BaseFloat> feats_new(new_num_feature_frames, feats.NumCols(),
-                                kUndefined);
+                                kUndefined),
+                      *offsets_new = NULL;
+    if (cmn_offsets) {
+      if (offset_type == 0) {
+        offsets_new->Resize(cmn_offsets->NumRows(), cmn_offsets->NumCols());
+        offsets_new->CopyFromMat(*cmn_offsets);
+      } else if (offset_type == 1)
+        offsets_new->Resize(new_num_feature_frames, cmn_offsets->NumCols(), kUndefined);
+    }
+
     int32 min_feature_frames = std::min<int32>(num_feature_frames,
                                                new_num_feature_frames);
     feats_new.RowRange(0, min_feature_frames).CopyFromMat(
         feats.RowRange(0, min_feature_frames));
     for (int32 i = num_feature_frames; i < new_num_feature_frames; i++)
       feats_new.Row(i).CopyFromVec(feats.Row(num_feature_frames - 1));
-    return ProcessFile(normalization_fst, feats_new, ivector_feats,
+
+    if (cmn_offsets) {
+      if (offset_type == 1) {
+        offsets_new->RowRange(0, min_feature_frames).CopyFromMat(
+          cmn_offsets->RowRange(0, min_feature_frames));
+        for (int32 i = num_feature_frames; i < new_num_feature_frames; i++)
+          offsets_new->Row(i).CopyFromVec(cmn_offsets->Row(num_feature_frames - 1));
+      }
+    }
+
+    return ProcessFile(normalization_fst, feats_new, ivector_feats, 
+                       offsets_new, offset_type,
                        supervision, utt_id, compress, left_context, right_context,
                        frames_per_eg, frames_overlap_per_eg, frame_subsampling_factor,
                        cut_zero_frames, num_frames_written, num_egs_written,
@@ -163,11 +185,14 @@ static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
     NnetChainExample nnet_chain_eg;
     nnet_chain_eg.outputs.resize(1);
     nnet_chain_eg.outputs[0].Swap(&nnet_supervision);
-    nnet_chain_eg.inputs.resize(ivector_feats != NULL ? 2 : 1);
+    nnet_chain_eg.inputs.resize(1 + (cmn_offsets != NULL ? 1 : 0) + (ivector_feats != NULL ? 1 : 0));
 
     int32 tot_frames = left_context + frames_per_eg + right_context;
-    Matrix<BaseFloat> input_frames(tot_frames, feats.NumCols(), kUndefined);
-
+    Matrix<BaseFloat> input_frames(tot_frames, feats.NumCols(), kUndefined),
+      offset_frames;
+    if (cmn_offsets)
+      offset_frames.Resize(tot_frames, cmn_offsets->NumCols(), kUndefined);
+    
     // Set up "input_frames".
     for (int32 j = -left_context; j < frames_per_eg + right_context; j++) {
       int32 t = range_start + j;
@@ -176,10 +201,35 @@ static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
       SubVector<BaseFloat> src(feats, t),
           dest(input_frames, j + left_context);
       dest.CopyFromVec(src);
+      if (cmn_offsets && offset_type == 1) {
+        SubVector<BaseFloat> src_offset(*cmn_offsets, t),
+          dest_offset(offset_frames, j + left_context);
+        dest_offset.CopyFromVec(src_offset);
+      }
     }
     NnetIo input_io("input", - left_context,
                     input_frames);
     nnet_chain_eg.inputs[0].Swap(&input_io);
+
+    // It contains offsets to perturb input features.
+    // num_rows is num of cmn offsets and num_cols is feature dim. e.g. 40.
+    int32 num_cmn_offsets = 1;
+    if (cmn_offsets) {
+      if (offset_type == 0) {
+        num_cmn_offsets = cmn_offsets->NumRows();
+        NnetIo offset_io("offset", *cmn_offsets);
+        nnet_chain_eg.inputs[1].Swap(&offset_io);
+      } else if (offset_type == 1) {
+        KALDI_ASSERT(cmn_offsets->NumCols() % feats.NumCols() == 0);
+        num_cmn_offsets = cmn_offsets->NumCols() / feats.NumCols() + 1;
+        NnetIo offset_io("offset", -left_context,
+                         offset_frames);
+        nnet_chain_eg.inputs[1].Swap(&offset_io);
+      } else {
+        KALDI_ERR << "Wrong offset-type " << offset_type;
+      }
+
+    }
 
     if (ivector_feats != NULL) {
       // if applicable, add the iVector feature.
@@ -190,8 +240,10 @@ static bool ProcessFile(const fst::StdVectorFst &normalization_fst,
         ivector_frame = ivector_feats->NumRows() - 1;
       Matrix<BaseFloat> ivector(1, ivector_feats->NumCols());
       ivector.Row(0).CopyFromVec(ivector_feats->Row(ivector_frame));
+      KALDI_ASSERT(ivector_feats->NumCols() % num_cmn_offsets == 0);
       NnetIo ivector_io("ivector", 0, ivector);
-      nnet_chain_eg.inputs[1].Swap(&ivector_io);
+      int32 ivec_ind = (cmn_offsets ? 2 : 1);
+      nnet_chain_eg.inputs[ivec_ind].Swap(&ivector_io);
     }
 
     if (compress)
@@ -244,8 +296,9 @@ int main(int argc, char *argv[]) {
         cut_zero_frames = -1,
         frame_subsampling_factor = 1;
 
-    int32 srand_seed = 0;
-    std::string ivector_rspecifier;
+    int32 srand_seed = 0, offset_type = 0;
+    std::string ivector_rspecifier,
+      utt2cmn_offsets_rspecifier;
 
     ParseOptions po(usage);
     po.Register("compress", &compress, "If true, write egs in "
@@ -274,6 +327,11 @@ int main(int argc, char *argv[]) {
     po.Register("frame-subsampling-factor", &frame_subsampling_factor, "Used "
                 "if the frame-rate at the output will be less than the "
                 "frame-rate of the input");
+    po.Register("utt2cmn-offsets", &utt2cmn_offsets_rspecifier,
+                "It maps utt to the matrix of offsets, one offset per row.");
+
+    po.Register("offset-type", &offset_type, " 0: same offset for all frames of"
+                " utts for single speaker, 1: per-frame ubm offsets");
 
     po.Read(argc, argv);
     
@@ -318,6 +376,7 @@ int main(int argc, char *argv[]) {
         supervision_rspecifier);
     NnetChainExampleWriter example_writer(examples_wspecifier);
     RandomAccessBaseFloatMatrixReader ivector_reader(ivector_rspecifier);
+    RandomAccessBaseFloatMatrixReader offset_reader(utt2cmn_offsets_rspecifier);
 
     int32 num_done = 0, num_err = 0;
     int64 num_frames_written = 0, num_egs_written = 0;
@@ -330,6 +389,16 @@ int main(int argc, char *argv[]) {
         num_err++;
       } else {
         const chain::Supervision &supervision = supervision_reader.Value(key);
+        const Matrix<BaseFloat> *cmn_offsets = NULL;
+        if (!utt2cmn_offsets_rspecifier.empty()) {
+          if (!offset_reader.HasKey(key)) {
+            KALDI_WARN << "No cmn offset for utterance " << key;
+            num_err++;
+            continue;
+          } else {
+            cmn_offsets = &(offset_reader.Value(key));
+          }
+        }
         const Matrix<BaseFloat> *ivector_feats = NULL;
         if (!ivector_rspecifier.empty()) {
           if (!ivector_reader.HasKey(key)) {
@@ -351,7 +420,9 @@ int main(int argc, char *argv[]) {
           num_err++;
           continue;
         }
-        if (ProcessFile(normalization_fst, feats, ivector_feats, supervision,
+        if (ProcessFile(normalization_fst, feats, ivector_feats, 
+                        cmn_offsets, offset_type, 
+                        supervision,
                         key, compress,
                         left_context, right_context, num_frames,
                         num_frames_overlap, frame_subsampling_factor,

@@ -42,6 +42,8 @@ max_count=0         # The use of this option (e.g. --max-count 100) can make
                     # posterior-scaling, so assuming the posterior-scale is 0.1,
                     # --max-count 100 starts having effect after 1000 frames, or
                     # 10 seconds of data.
+offset_type=0       # 0 : same offsets for all frames in speaker
+                    # 1 : per-frame offset for each frame using ubm posterior.
 # End configuration section.
 
 echo "$0 $@"  # Print the command line for logging
@@ -78,7 +80,14 @@ mkdir -p $dir/log $dir/conf
 num_cmn_offsets=-1  # If > 0, it uses offsets.scp and generates iVector for 
                     # all random offsets version of inputs.
 if [ -f $data/offsets.scp ]; then
-  num_cmn_offsets=`feat-to-len --print-args=false scp:"head -n 1 $data/offsets.scp |"` 
+  #offset_type=`cat $data/offset_type`
+  if [ $offset_type -eq 0 ]; then
+    num_cmn_offsets=`feat-to-len --print-args=false scp:"head -n 1 $data/offsets.scp |"`
+  elif [ $offset_type -eq 1 ];then 
+    feat_dim=`feat-to-dim --print-args=false scp:$data/feats.scp  -`
+    offset_dim=`feat-to-dim --print-args=false scp:$data/offsets.scp  -`
+    num_cmn_offsets=$[$offset_dim/$feat_dim+1]
+  fi
   nj=$[$nj*$num_cmn_offsets] 
 fi
 
@@ -124,12 +133,19 @@ if [ $stage -le 0 ]; then
   echo "$0: extracting iVectors"
   offset_opts=
   if [ -f $data/offsets.scp ]; then
-    for i in $(seq $nj); do
-      split_feats=$sdata/$i
-      awk '{print $1,$2}' < $split_feats/spk2utt | utils/apply_map.pl -f 2 $split_feats/offsets.scp > $split_feats/spk_offsets.scp
-    done
-    offset_opts="--spk2cmn-offset=scp:$sdata/JOB/spk_offsets.scp"
+    if [ $offset_type -eq 0 ]; then
+      for i in $(seq $nj); do
+        split_feats=$sdata/$i
+        awk '{print $1,$2}' < $split_feats/spk2utt | utils/apply_map.pl -f 2 $split_feats/offsets.scp > $split_feats/spk_offsets.scp
+      done
+      offset_opts="--spk2cmn-offset=scp:$sdata/JOB/spk_offsets.scp --offset-type=$offset_type"
+    elif [ $offset_type -eq 1 ]; then
+      offset_opts="--spk2cmn-offset=scp:$sdata/JOB/offsets.scp --offset-type=$offset_type"
+    else
+      echo "Wrong offset type $offset_type " && exit 1;
+    fi
   fi
+  echo offset-opts = $offset_opts
   $cmd JOB=1:$nj $dir/log/extract_ivectors.JOB.log \
      ivector-extract-online2 --config=$ieconf $offset_opts ark:$sdata/JOB/spk2utt scp:$sdata/JOB/feats.scp ark:- \| \
      copy-feats --compress=$compress ark:- \

@@ -26,8 +26,11 @@ common_egs_dir=
 reporting_email=
 remove_egs=false
 use_random_offsets=false
+offset_type=0
+ubm_offset=exp/full_ubm/final.ubm
 num_epochs=2
 dir=exp/nnet3/tdnn_b
+
 . ./cmd.sh
 . ./path.sh
 . ./utils/parse_options.sh
@@ -51,10 +54,12 @@ train_set=train_nodup$suffix
 ali_dir=exp/tri4_ali_nodup$suffix
 
 local/nnet3/run_ivector_common.sh --stage $stage \
-	--speed-perturb $speed_perturb --use-random-offsets $use_random_offsets || exit 1;
+  --speed-perturb $speed_perturb --use-random-offsets $use_random_offsets \
+  --offset-type $offset_type --ubm-offset $ubm_offset || exit 1;
 
 if $use_random_offsets; then
-  num_epochs=`grep num-cmn-offset conf/offsets.conf | cut -d"=" -f2`
+  echo num-epochs = $num_epochs
+  #num_epochs=`grep num-cmn-offset conf/offsets.conf | cut -d"=" -f2`
 fi
 
 if [ $stage -le 10 ]; then
@@ -68,6 +73,7 @@ if [ $stage -le 10 ]; then
   steps/nnet3/tdnn/make_configs.py  \
     --feat-dir data/${train_set}_hires \
     --ivector-dir exp/nnet3/ivectors_${train_set} \
+    --offset-type $offset_type \
     --ali-dir $ali_dir \
     --relu-dim-init 512 \
     --relu-dim-final 1024 \
@@ -97,6 +103,7 @@ if [ $stage -le 11 ]; then
     --cleanup.preserve-model-interval 10 \
     --use-gpu true \
     --feat-dir=data/${train_set}_hires \
+    --offset-type $offset_type \
     --ali-dir $ali_dir \
     --lang data/lang \
     --reporting.email="$reporting_email" \

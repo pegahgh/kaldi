@@ -256,6 +256,8 @@ int main(int argc, char *argv[]) {
     int32 frame_subsampling_factor = -1;
     BaseFloat keep_proportion = 1.0;
     int32 left_context = -1, right_context = -1;
+    int32 select_feature_offset = -1, offset_type = 0;
+
     ParseOptions po(usage);
     po.Register("random", &random, "If true, will write frames to output "
                 "archives randomly, not round-robin.");
@@ -276,6 +278,12 @@ int main(int argc, char *argv[]) {
                 "feature left-context that we output.");
     po.Register("right-context", &right_context, "Can be used to truncate the "
                 "feature right-context that we output.");
+    po.Register("select-feature-offset", &select_feature_offset, "If > -1, it "
+                " adds the chosen offset to features, and it also selects "
+                " the iVector that is generated for the feature offset by this value.");
+    po.Register("offset-type", &offset_type, " 0: same offset for all frame for"
+                " all utt correspond to single speaker, 1: per-frame offsets");
+
     po.Read(argc, argv);
 
     srand(srand_seed);
@@ -310,19 +318,36 @@ int main(int argc, char *argv[]) {
       if (frame_shift == 0 && truncate_deriv_weights == 0 &&
           left_context == -1 && right_context == -1) {
         const NnetChainExample &eg = example_reader.Value();
+        NnetChainExample offseted_eg = eg;
+        if (select_feature_offset != -1) {
+          if (offset_type == 0)
+            SelectFeatureOffset(select_feature_offset, &offseted_eg);
+          else if (offset_type == 1)
+            SelectUbmFeatureOffset(select_feature_offset, &offseted_eg);
+          else 
+            KALDI_ERR << "Wrong random offset type " << offset_type;
+        }
         for (int32 c = 0; c < count; c++) {
           int32 index = (random ? Rand() : num_written) % num_outputs;
-          example_writers[index]->Write(key, eg);
+          example_writers[index]->Write(key, offseted_eg);
           num_written++;
         }
       } else if (count > 0) {
         const NnetChainExample &eg = example_reader.Value();
-        NnetChainExample eg_out;
+        NnetChainExample offseted_eg = eg, eg_out;
+        if (select_feature_offset != -1) {
+          if (offset_type == 0)
+            SelectFeatureOffset(select_feature_offset, &offseted_eg);
+          else if (offset_type == 1)
+            SelectUbmFeatureOffset(select_feature_offset, &offseted_eg);
+          else 
+            KALDI_ERR << "Wrong random offset type " << offset_type;
+        }
         if (left_context != -1 || right_context != -1)
-          ModifyChainExampleContext(eg, left_context, right_context,
+          ModifyChainExampleContext(offseted_eg, left_context, right_context,
                                     frame_subsampling_factor, &eg_out);
         else
-          eg_out = eg;
+          eg_out = offseted_eg;
         if (frame_shift != 0)
           ShiftChainExampleTimes(frame_shift, exclude_names, &eg_out);
         if (truncate_deriv_weights != 0)

@@ -60,6 +60,12 @@ def GetArgs():
                         help="The factor used for determining the liftering vector in the production of MFCC. "
                         "User has to ensure that it matches the lifter used in MFCC generation, "
                         "e.g. 22.0", default=22.0)
+    # random offset 
+    parser.add_argument("--offset-type", type=int,
+                        default = -1,
+                        choices = [-1, 0, 1],
+                        help="-1: no offset; 0: per-speaker offset; 1: per-frame ubm offset.");
+
 
     # General neural network options
     parser.add_argument("--splice-indexes", type=str, required = True,
@@ -135,7 +141,7 @@ def CheckArgs(args):
     ## Check arguments.
     if args.feat_dir is not None:
         args.feat_dim = nnet3_train_lib.GetFeatDim(args.feat_dir)
-        args.num_cmn_offsets = nnet3_train_lib.GetNumCmnOffsets(args.feat_dir)
+        args.num_cmn_offsets = nnet3_train_lib.GetNumCmnOffsets(args.feat_dir, args.offset_type)
 
     if args.ali_dir is not None:
         args.num_targets = nnet3_train_lib.GetNumberOfLeaves(args.ali_dir)

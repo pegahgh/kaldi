@@ -7,7 +7,9 @@ train_stage=-10
 generate_alignments=true # false if doing ctc training
 speed_perturb=true
 use_random_offsets=false
-
+offset_type=0 # 0 : same offsets for all frames in speaker
+              # 1 : per-frame offset for each frame using ubm posterior.
+ubm_offset=exp/final_ubm # ubm model used for random offset generation
 . ./path.sh
 . ./utils/parse_options.sh
 
@@ -128,7 +130,12 @@ if [ $stage -le 8 ]; then
   mfccdir=mfcc_hires
   for dataset in $train_set; do
     if $use_random_offsets; then
-      steps/compute_offsets.sh --offsets-config conf/offsets.conf  --cmd "$train_cmd" \
+      rand_offset_opt="--offset-type $offset_type"
+      if [ $offset_type -eq 1 ]; then
+        echo offset-type = $offset_type
+        rand_offset_opt="$rand_offset_opt --ubm-offset $ubm_offset"
+      fi
+      steps/compute_offsets.sh $rand_offset_opt --offsets-config conf/offsets.conf  --cmd "$train_cmd" \
         data/${dataset}_hires exp/make_offsets/${dataset} $mfccdir || exit 1;
     fi
   done
@@ -143,12 +150,14 @@ if [ $stage -le 9 ]; then
   steps/online/nnet2/copy_data_dir.sh --utts-per-spk-max 2 data/${train_set}_hires data/${train_set}_max2_hires
 
   steps/online/nnet2/extract_ivectors_online.sh --cmd "$train_cmd" --nj 30 \
+    --offset-type $offset_type \
     data/${train_set}_max2_hires exp/nnet3/extractor exp/nnet3/ivectors_${train_set} || exit 1;
-
+  if false; then
   for data_set in eval2000 train_dev; do
     steps/online/nnet2/extract_ivectors_online.sh --cmd "$train_cmd" --nj 30 \
       data/${data_set}_hires exp/nnet3/extractor exp/nnet3/ivectors_${data_set} || exit 1;
   done
+  fi #100
 fi
 
 exit 0;

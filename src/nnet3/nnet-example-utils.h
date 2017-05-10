@@ -90,6 +90,17 @@ void RoundUpNumFrames(int32 frame_subsampling_factor,
 // correpsond to this feature_offset.
 void SelectFeatureOffset(int32 feature_offset, NnetExample *eg);
 
+// This function operate on single egs (egs with a single 'n' index).
+// It will select columns correspond to 'feature_offset' from NnetIo with name "offset" and
+// adds these offsets to input.features.
+// Features in NnetIo with name offsets in eg contains appended offsets
+// The NnetIo ivector contains ivector for all offsets in offset and 
+// its dim is real ivector_dim * num_cmn_offset.
+// This function modifies NnetIo ivector by selecting ivector subset 
+// correpsond to this feature_offset.
+// the 1st subset of ivector correspond to original data with no offset
+// if feature_offset = 0, then no offset is added to eg and it uses original eg.
+void SelectUbmFeatureOffset(int32 feature_offset, NnetExample *eg);
 
 } // namespace nnet3
 } // namespace kaldi

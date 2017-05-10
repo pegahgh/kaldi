@@ -56,7 +56,8 @@ online_ivector_dir=  # can be used if we are including speaker information as iV
 cmvn_opts=  # can be used for specifying CMVN options, if feature type is not lda (if lda,
             # it doesn't make sense to use different options than were used as input to the
             # LDA transform).  This is used to turn off CMVN in the online-nnet experiments.
-
+offset_type=0       # 0 : same offsets for all frames in speaker
+                    # 1 : per-frame offset for each frame using ubm posterior.
 echo "$0 $@"  # Print the command line for logging
 
 if [ -f path.sh ]; then . ./path.sh; fi
@@ -184,8 +185,16 @@ if [ -f $dir/trans.scp ]; then
 fi
 num_offsets=1
 if [ -f $data/offsets.scp ]; then
-  num_offsets=`feat-to-len --print-args=false scp:"head -n 1 $data/offsets.scp |"`
+  if [ $offset_type -eq 0 ]; then
+    num_offsets=`feat-to-len --print-args=false scp:"head -n 1 $data/offsets.scp |"`
+  elif [ $offset_type -eq 1 ]; then
+    offset_dim=`feat-to-dim --print-args=false scp:$data/offsets.scp -`
+    feat_dim=`feat-to-dim --print-args=false scp:$data/feats.scp -` 
+    num_offsets=$[$offset_dim/$feat_dim+1]
+  fi
+  echo num of random offset = $num_offsets
 fi
+
 if [ ! -z "$online_ivector_dir" ]; then
   ivector_dim=$(feat-to-dim scp:$online_ivector_dir/ivector_online.scp -) || exit 1;
   ivector_dim=$[$ivector_dim/$num_offsets]
@@ -331,13 +340,15 @@ if [ $stage -le 4 ]; then
   done
   # if $data/offsets.scp is defined, it will be used in generating egs.
   offsets=
+  offset_opts=
   if [ -f $data/offsets.scp ]; then
     offsets="--utt2cmn-offsets=scp:$sdata/JOB/offsets.scp"
+    offset_opts="--offset-type=$offset_type" 
   fi
   echo "$0: Generating training examples on disk"
   # The examples will go round-robin to egs_list.
   $cmd JOB=1:$nj $dir/log/get_egs.JOB.log \
-    nnet3-get-egs --num-pdfs=$num_pdfs $ivector_opt $egs_opts --num-frames=$frames_per_eg $offsets "$feats" \
+    nnet3-get-egs --num-pdfs=$num_pdfs $ivector_opt $egs_opts $offset_opts --num-frames=$frames_per_eg $offsets "$feats" \
     "ark,s,cs:filter_scp.pl $sdata/JOB/utt2spk $dir/ali.scp | ali-to-pdf $alidir/final.mdl scp:- ark:- | ali-to-post ark:- ark:- |" ark:- \| \
     nnet3-copy-egs --random=true --srand=\$[JOB+$srand] ark:- $egs_list || exit 1;
 fi
@@ -352,8 +363,8 @@ if [ $stage -le 5 ]; then
   for n in $(seq $nj); do
     egs_list="$egs_list $dir/egs_orig.$n.JOB.ark"
   done
-
   if [ $archives_multiple == 1 ]; then # normal case.
+    echo num_archives_intermediate = $num_archives_intermediate
     $cmd --max-jobs-run $nj JOB=1:$num_archives_intermediate $dir/log/shuffle.JOB.log \
       nnet3-shuffle-egs --srand=\$[JOB+$srand] "ark:cat $egs_list|" ark:$dir/egs.JOB.ark  || exit 1;
   else
@@ -362,6 +373,7 @@ if [ $stage -le 5 ]; then
     # otherwise managing the output names is quite difficult (and we don't want
     # to submit separate queue jobs for each intermediate archive, because then
     # the --max-jobs-run option is hard to enforce).
+    echo archives_multiple = $archives_multiple and num_archives_intermediate = $num_archives_intermediate
     output_archives="$(for y in $(seq $archives_multiple); do echo ark:$dir/egs.JOB.$y.ark; done)"
     for x in $(seq $num_archives_intermediate); do
       for y in $(seq $archives_multiple); do

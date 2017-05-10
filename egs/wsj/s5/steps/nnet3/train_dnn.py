@@ -45,6 +45,10 @@ def GetArgs():
     parser.add_argument("--feat.cmvn-opts", type=str, dest='cmvn_opts',
                         default = None, action = NullstrToNoneAction,
                         help="A string specifying '--norm-means' and '--norm-vars' values")
+    parser.add_argument("--offset-type", type=int,
+                        default = 0,
+                        choices = [0, 1],
+                        help="0: per-speaker offset; 1: per-frame ubm offset.");
 
     # egs extraction options
     parser.add_argument("--egs.frames-per-eg", type=int, dest='frames_per_eg',
@@ -284,7 +288,8 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
                    momentum, max_param_change,
                    shuffle_buffer_size, minibatch_size,
                    num_cmn_offsets,
-                   run_opts):
+                   run_opts,
+                   offset_type=None):
       # We cannot easily use a single parallel SGE job to do the main training,
       # because the computation of which archive and which --frame option
       # to use for each job is a little complex, so we spawn each one separately.
@@ -293,6 +298,10 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
 
     context_opts="--left-context={0} --right-context={1}".format(
                   left_context, right_context)
+    offset_opts=""
+    if offset_type is not None:
+      offset_opts="--offset-type={0}".format(offset_type)
+
     processes = []
     for job in range(1,num_jobs+1):
         k = num_archives_processed + job - 1 # k is a zero-based index that we will derive
@@ -300,8 +309,9 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
         archive_index = (k % num_archives) + 1 # work out the 1-based archive index.
         frame = (k / num_archives) % frames_per_eg
         offset_num = -1
+        epoch_index = 0
         if num_cmn_offsets > 0:
-          offset_num = (archive_index - 1) % num_cmn_offsets
+          offset_num = ((k / num_archives) + (k % num_archives)) % num_cmn_offsets
 
         process_handle = RunKaldiCommand("""
 {command} {train_queue_opt} {dir}/log/train.{iter}.{job}.log \
@@ -309,7 +319,7 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
   --print-interval=10 --momentum={momentum} \
   --max-param-change={max_param_change} \
   "{raw_model}" \
-  "ark,bg:nnet3-copy-egs --select-feature-offset={offset_num} --frame={frame} {context_opts} ark:{egs_dir}/egs.{archive_index}.ark ark:- | nnet3-shuffle-egs --buffer-size={shuffle_buffer_size} --srand={srand} ark:- ark:-| nnet3-merge-egs --minibatch-size={minibatch_size} --measure-output-frames=false --discard-partial-minibatches=true ark:- ark:- |" \
+  "ark,bg:nnet3-copy-egs --select-feature-offset={offset_num} {offset_opts} --frame={frame} {context_opts} ark:{egs_dir}/egs.{archive_index}.ark ark:- | nnet3-shuffle-egs --buffer-size={shuffle_buffer_size} --srand={srand} ark:- ark:-| nnet3-merge-egs --minibatch-size={minibatch_size} --measure-output-frames=false --discard-partial-minibatches=true ark:- ark:- |" \
   {dir}/{next_iter}.{job}.raw
           """.format(command = run_opts.command,
                      train_queue_opt = run_opts.train_queue_opt,
@@ -321,7 +331,8 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
                      egs_dir = egs_dir, archive_index = archive_index,
                      shuffle_buffer_size = shuffle_buffer_size,
                      minibatch_size = minibatch_size,
-                     offset_num = offset_num),
+                     offset_num = offset_num,
+                     offset_opts = offset_opts if offset_type is not None else ''),
           wait = False)
 
         processes.append(process_handle)
@@ -345,7 +356,8 @@ def TrainOneIteration(dir, iter, srand, egs_dir,
                       left_context, right_context,
                       momentum, max_param_change, shuffle_buffer_size,
                       num_cmn_offsets,
-                      run_opts):
+                      run_opts,
+                      offset_type=None):
 
 
 
@@ -407,7 +419,7 @@ def TrainOneIteration(dir, iter, srand, egs_dir,
                    momentum, max_param_change,
                    shuffle_buffer_size, cur_minibatch_size,
                    num_cmn_offsets,
-                   run_opts)
+                   run_opts, offset_type)
     [models_to_average, best_model] = GetSuccessfulModels(num_jobs, '{0}/log/train.{1}.%.log'.format(dir,iter))
     nnets_list = []
     for n in models_to_average:
@@ -457,7 +469,7 @@ def Train(args, run_opts):
     num_jobs = GetNumberOfJobs(args.ali_dir)
     feat_dim = GetFeatDim(args.feat_dir)
     ivector_dim = GetIvectorDim(args.online_ivector_dir)
-    num_cmn_offsets = GetNumCmnOffsets(args.feat_dir)
+    num_cmn_offsets = GetNumCmnOffsets(args.feat_dir, args.offset_type)
     if num_cmn_offsets > 0:
       assert(ivector_dim % num_cmn_offsets == 0)
       ivector_dim = ivector_dim / num_cmn_offsets
@@ -501,7 +513,8 @@ def Train(args, run_opts):
                     online_ivector_dir = args.online_ivector_dir,
                     samples_per_iter = args.samples_per_iter,
                     transform_dir = args.transform_dir,
-                    stage = args.egs_stage)
+                    stage = args.egs_stage,
+                    offset_type = args.offset_type)
 
     if args.egs_dir is None:
         egs_dir = default_egs_dir
@@ -520,11 +533,12 @@ def Train(args, run_opts):
 
     if (args.stage <= -3):
         logger.info('Computing the preconditioning matrix for input features')
-        num_cmn_offsets = GetNumCmnOffsets(args.feat_dir) 
+        num_cmn_offsets = GetNumCmnOffsets(args.feat_dir, args.offset_type) 
         ComputePreconditioningMatrix(args.dir, egs_dir, num_archives, run_opts,
                                      max_lda_jobs = args.max_lda_jobs,
                                      rand_prune = args.rand_prune,
-                                     select_feature_offset = (0 if num_cmn_offsets > 0 else -1))
+                                     select_feature_offset = (0 if num_cmn_offsets > 0 else -1),
+                                     offset_type = args.offset_type)
 
 
     if (args.stage <= -2):
@@ -599,7 +613,7 @@ def Train(args, run_opts):
                               num_hidden_layers, args.add_layers_period,
                               left_context, right_context,
                               args.momentum, args.max_param_change,
-                              args.shuffle_buffer_size, num_cmn_offsets, run_opts)
+                              args.shuffle_buffer_size, num_cmn_offsets, run_opts, args.offset_type)
             if args.cleanup:
                 # do a clean up everythin but the last 2 models, under certain conditions
                 RemoveModel(args.dir, iter-2, num_iters, num_iters_combine,
@@ -625,7 +639,8 @@ def Train(args, run_opts):
         logger.info("Getting average posterior for purposes of adjusting the priors.")
         avg_post_vec_file = ComputeAveragePosterior(args.dir, 'combined', egs_dir,
                                 num_archives, args.prior_subset_size, run_opts,
-                                (0 if num_cmn_offsets > 1 else -1))
+                                (0 if num_cmn_offsets > 1 else -1),
+                                args.offset_type)
         logger.info("Re-adjusting priors based on computed posteriors")
         combined_model = "{dir}/combined.mdl".format(dir = args.dir)
         final_model = "{dir}/final.mdl".format(dir = args.dir)
