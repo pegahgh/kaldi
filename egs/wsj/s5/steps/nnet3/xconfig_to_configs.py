@@ -28,8 +28,26 @@ def get_args():
         epilog='Search egs/*/*/local/{nnet3,chain}/*sh for examples')
     parser.add_argument('--xconfig-file', required=True,
                         help='Filename of input xconfig file')
+    parser.add_argument('--existing-model',
+                        help='Filename of previously trained neural net '
+                             '(e.g. final.mdl) which is useful in case of '
+                             'using list of component-node in already trained model '
+                             'to generate new config file for new model.'
+                             'e.g. In Transfer learning: generate new model using '
+                             'nodes in existing model.')
     parser.add_argument('--config-dir', required=True,
                         help='Directory to write config files and variables')
+    parser.add_argument('--edits-config', type=str, default=None,
+                        action=common_lib.NullstrToNoneAction,
+                        help="This is nnet3 config filename that is useful in "
+                        "case the network you are "
+                        "creating does not have an output node called 'output' "
+                        "(e.g. for multilingual setups).  You can set this to "
+                        "an edits-config can contain string like: "
+                        "'rename-node old-name=xxx new-name=output' "
+                        "if node xxx plays the role of the output node in this "
+                        "network."
+                        "This is only used for computing the left/right context.")
 
     print(' '.join(sys.argv))
 
@@ -209,13 +227,19 @@ def write_config_files(config_dir, all_layers):
             raise
 
 
-def add_nnet_context_info(config_dir):
+def add_nnet_context_info(config_dir, existing_model=None,
+                                edits_config=None):
     """This will be removed when python script refactoring is done."""
-
-    common_lib.execute_command("nnet3-init {0}/ref.config "
-                               "{0}/ref.raw".format(config_dir))
-    out = common_lib.get_command_stdout("nnet3-info {0}/ref.raw | "
-                                        "head -4".format(config_dir))
+    model = "{0}/ref.raw".format(config_dir)
+    if edits_config is not None:
+        model = """ - | nnet3-copy --edits-config={0} - {1}""".format(edits_config,
+                                                              model)
+    common_lib.execute_command("""nnet3-init {0} {1}/ref.config """
+                                 """ {2} """.format(existing_model if
+                                 existing_model is not None else "",
+                                 config_dir, model))
+    out = common_lib.get_command_stdout("""nnet3-info {0}/ref.raw | """
+                                        """head -4""".format(config_dir))
     # out looks like this
     # left-context: 7
     # right-context: 0
@@ -236,15 +260,22 @@ def add_nnet_context_info(config_dir):
     vf.write('model_right_context={0}\n'.format(info['right-context']))
     vf.close()
 
-def check_model_contexts(config_dir):
+def check_model_contexts(config_dir, existing_model=None, edits_config=None):
     contexts = {}
     for file_name in ['init', 'ref']:
         if os.path.exists('{0}/{1}.config'.format(config_dir, file_name)):
             contexts[file_name] = {}
-            common_lib.execute_command("nnet3-init {0}/{1}.config "
-                                       "{0}/{1}.raw".format(config_dir, file_name))
-            out = common_lib.get_command_stdout("nnet3-info {0}/{1}.raw | "
-                                                "head -4".format(config_dir, file_name))
+            model = "{0}/{1}.raw".format(config_dir, file_name)
+            if edits_config is not None:
+                model = """ - | nnet3-copy --edits-config={0} - {1}""".format(edits_config,
+                                                                      model)
+            common_lib.execute_command("""nnet3-init {0} {1}/{2}.config """
+                                         """ {3} """.format(existing_model if
+                                                      existing_model is not
+                                                      None else "", config_dir,
+                                                      file_name, model))
+            out = common_lib.get_command_stdout("""nnet3-info {0}/{1}.raw | """
+                                                """head -4""".format(config_dir, file_name))
             # out looks like this
             # left-context: 7
             # right-context: 0
@@ -261,25 +292,31 @@ def check_model_contexts(config_dir):
 
     if contexts.has_key('init'):
         assert(contexts.has_key('ref'))
-        if ((contexts['init']['left-context'] > contexts['ref']['left-context'])
-           or (contexts['init']['right-context'] > contexts['ref']['right-context'])):
-           raise Exception("Model specified in {0}/init.config requires greater"
-                           " context than the model specified in {0}/ref.config."
-                           " This might be due to use of label-delay at the output"
-                           " in ref.config. Please use delay=$label_delay in the"
-                           " initial fixed-affine-layer of the network, to avoid"
-                           " this issue.")
+        if (contexts['init'].has_key('left-context') and
+            contexts['ref'].has_key('left-context')):
+            if ((contexts['init']['left-context'] > contexts['ref']['left-context'])
+               or (contexts['init']['right-context'] > contexts['ref']['right-context'])):
+               raise Exception("Model specified in {0}/init.config requires greater"
+                               " context than the model specified in {0}/ref.config."
+                               " This might be due to use of label-delay at the output"
+                               " in ref.config. Please use delay=$label_delay in the"
+                               " initial fixed-affine-layer of the network, to avoid"
+                               " this issue.")
 
 
 
 def main():
     args = get_args()
     backup_xconfig_file(args.xconfig_file, args.config_dir)
-    all_layers = xparser.read_xconfig_file(args.xconfig_file)
+    aux_layers = []
+    if args.existing_model is not None:
+        aux_layers = xparser.get_model_component_info(args.existing_model)
+    all_layers = xparser.read_xconfig_file(args.xconfig_file, aux_layers)
     write_expanded_xconfig_files(args.config_dir, all_layers)
     write_config_files(args.config_dir, all_layers)
-    check_model_contexts(args.config_dir)
-    add_nnet_context_info(args.config_dir)
+    check_model_contexts(args.config_dir, args.existing_model, args.edits_config)
+    add_nnet_context_info(args.config_dir, args.existing_model,
+                                args.edits_config)
 
 
 if __name__ == '__main__':
