@@ -443,7 +443,7 @@ void ConvolutionComputation::Check() const {
 // Note: the number of time steps covered may be different
 // from that implied by cc.num_t_in and cc.num_t_out
 // if the matrices are very large and we've broken the
-// computation up into pieces to save memoiry.
+// computation up into pieces to save memory.
 static void ConvolveForwardInternal(
     const ConvolutionComputation &cc,
     const CuMatrixBase<BaseFloat> &input,

@@ -418,7 +418,7 @@ class TimeHeightConvolutionComponent: public UpdatableComponent {
                       num-filters-in=input-dim/num-sub-frames, then
                       the number of parameters in the component will
                       will equal (num-sub-frames * num-filters-out *
-                             (1 + sub-frames-left-context * sub-frames-right-context)).
+                             (1 + sub-frames-left-context + sub-frames-right-context)).
       zero-pad        (default: true)  If true, this component will zero-pad
                       at the edges of available input, so that in order to compute
                       a single frame of output, we only need a single frame of input

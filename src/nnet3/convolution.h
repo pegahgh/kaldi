@@ -113,7 +113,7 @@ namespace time_height_convolution {
    start from zero, they can be less than zero, just like the offsets in TDNNs
    which are often lists like (-3,0,3).  Don't be surprised to see things like:
 
-   offsets={ (-3,-1),(-3,0),(-3,1), (0,-1),(0,0),(0,2), (3,-1),(3,0),(3,1) }
+   offsets={ (-3,-1),(-3,0),(-3,1), (0,-1),(0,0),(0,1), (3,-1),(3,0),(3,1) }
 
    If there are negative offsets in the height dimension (as above) it means
    that there is zero-padding in the height dimension (because the first

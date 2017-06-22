@@ -964,6 +964,41 @@ void GenerateConfigSequenceCnnTime(
   configs->push_back(ss.str());
 }
 
+void GenerateConfigSequencePoolCnnTime(
+    const NnetGenerationOptions &opts,
+    std::vector<std::string> *configs) {
+  std::ostringstream ss;
+  // just generate a config with a single component.
+  int32 samples_per_sub_frame = RandInt(1, 10),
+      num_filters_out = RandInt(1, 10),
+      sub_frames_per_frame = RandInt(1, 5),
+      sub_frames_left_context = RandInt(0, 5),
+      sub_frames_right_context = RandInt(0, 5);
+  bool zero_pad = (RandInt(0, 1) == 0);
+  int32 input_dim = samples_per_sub_frame * sub_frames_per_frame;
+  ss << "input-node name=input dim=" << input_dim << std::endl;
+  ss << "component name=layer1-conv type=TimeConvolutionComponent input-dim=" << input_dim
+     << " num-filters-out=" << num_filters_out
+     << " sub-frames-per-frame=" << sub_frames_per_frame
+     << " sub-frames-left-context=" << sub_frames_left_context
+     << " sub-frames-right-context=" << sub_frames_right_context
+     << " zero-pad=" << (zero_pad ? "true" : "false") << std::endl;
+  ss << "component-node name=layer1-conv component=layer1-conv input=input\n";
+
+  ss << "component name=layer1-maxpool type=MaxpoolingComponent "
+     << " input-x-dim=" << sub_frames_per_frame
+     << " input-y-dim=1 "
+     << " input-z-dim=" << num_filters_out
+     << " pool-x-size=" << sub_frames_per_frame
+     << " pool-y-size=1"
+     << " pool-z-size=" << num_filters_out
+     << " pool-x-step=" << sub_frames_per_frame
+     << " pool-y-step=1 pool-z-step=1" << std::endl;
+  ss << "component-node name=layer1-maxpool component=layer1-maxpool input=layer1-conv\n";
+  ss << "output-node name=output input=layer1-maxpool";
+  configs->push_back(ss.str());
+}
+
 void GenerateConfigSequenceCnnNew(
     const NnetGenerationOptions &opts,
     std::vector<std::string> *configs) {
@@ -1167,7 +1202,7 @@ void GenerateConfigSequence(
     const NnetGenerationOptions &opts,
     std::vector<std::string> *configs) {
 start:
-  int32 network_type = RandInt(0, 14);
+  int32 network_type = RandInt(0, 15);
   switch(network_type) {
     case 0:
       GenerateConfigSequenceSimplest(opts, configs);
@@ -1243,6 +1278,11 @@ start:
         goto start;
       GenerateConfigSequenceCnnTime(opts, configs);
       break;
+    case 15:
+      if (!opts.allow_context)
+        goto start;
+        GenerateConfigSequencePoolCnnTime(opts, configs);
+        break;
     default:
       KALDI_ERR << "Error generating config sequence.";
   }
@@ -1314,7 +1354,7 @@ void ComputeExampleComputationRequestSimple(
 static void GenerateRandomComponentConfig(std::string *component_type,
                                           std::string *config) {
 
-  int32 n = RandInt(0, 32);
+  int32 n = RandInt(0, 33);
   BaseFloat learning_rate = 0.001 * RandInt(1, 100);
 
   std::ostringstream os;
@@ -1635,6 +1675,11 @@ static void GenerateRandomComponentConfig(std::string *component_type,
       os << "input-dim=" << input_dim
          << " output-dim=" << output_dim
          << " scale=" << scale;
+      break;
+    }
+    case 33: {
+      *component_type = "LogComponent";
+      os << " dim=" << RandInt(1, 50);
       break;
     }
     default:
