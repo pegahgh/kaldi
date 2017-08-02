@@ -3365,7 +3365,8 @@ ConvolutionComponent::ConvolutionComponent():
     filt_x_dim_(0), filt_y_dim_(0),
     filt_x_step_(0), filt_y_step_(0),
     input_vectorization_(kZyx),
-    is_gradient_(false) {}
+    is_gradient_(false),
+    l1_regularizer_(0.0) {}
 
 ConvolutionComponent::ConvolutionComponent(
     const ConvolutionComponent &component):
@@ -3380,6 +3381,9 @@ ConvolutionComponent::ConvolutionComponent(
     input_vectorization_(component.input_vectorization_),
     filter_params_(component.filter_params_),
     bias_params_(component.bias_params_),
+    cos_transform_(component.cos_transform_),
+    sin_transform_(component.sin_transform_),
+    l1_regularizer_(component.l1_regularizer_),
     is_gradient_(component.is_gradient_) {}
 
 ConvolutionComponent::ConvolutionComponent(
@@ -3404,6 +3408,7 @@ ConvolutionComponent::ConvolutionComponent(
                bias_params.Dim() != 0);
   KALDI_ASSERT(filter_params.NumCols() == filt_x_dim * filt_y_dim * input_z_dim);
   SetUnderlyingLearningRate(learning_rate);
+  l1_regularizer_ = 0.0;
   is_gradient_ = false;
 }
 
@@ -3485,20 +3490,37 @@ std::string ConvolutionComponent::Info() const {
          << ", filt-x-step=" << filt_x_step_
          << ", filt-y-step=" << filt_y_step_
          << ", input-vectorization=" << input_vectorization_
-         << ", num-filters=" << filter_params_.NumRows();
+         << ", num-filters=" << filter_params_.NumRows()
+         << ", l1-regularizer=" << l1_regularizer_;
   PrintParameterStats(stream, "filter-params", filter_params_);
   PrintParameterStats(stream, "bias-params", bias_params_, true);
+  if (l1_regularizer_ != 0.0) {
+    CuMatrix<BaseFloat> cos_transformed, sin_transformed,
+      params_abs_fft;
+    int32 num_filters = filter_params_.NumRows();
+    ComputeParamsAbsFft(filter_params_, &params_abs_fft,
+                        &cos_transformed, &sin_transformed);
+    Vector<BaseFloat> filter_l1_norm(num_filters);
+    for (int f = 0; f < num_filters; f++) {
+      filter_l1_norm(f) = params_abs_fft.ColRange(f, 1).Sum();
+    }
+    stream << ", l1-norm of absolute fft-transformed filter params="
+           << filter_l1_norm;
+  }
+
   return stream.str();
 }
 
 // initialize the component using configuration file
 void ConvolutionComponent::InitFromConfig(ConfigLine *cfl) {
   bool ok = true;
-  std::string matrix_filename;
+  std::string matrix_filename,
+    cos_matrix_filename, sin_matrix_filename;
   int32 input_x_dim = -1, input_y_dim = -1, input_z_dim = -1,
         filt_x_dim = -1, filt_y_dim = -1,
         filt_x_step = -1, filt_y_step = -1,
         num_filters = -1;
+
   std::string input_vectorization_order = "zyx";
   InitLearningRatesFromConfig(cfl);
   ok = ok && cfl->GetValue("input-x-dim", &input_x_dim);
@@ -3508,6 +3530,11 @@ void ConvolutionComponent::InitFromConfig(ConfigLine *cfl) {
   ok = ok && cfl->GetValue("filt-y-dim", &filt_y_dim);
   ok = ok && cfl->GetValue("filt-x-step", &filt_x_step);
   ok = ok && cfl->GetValue("filt-y-step", &filt_y_step);
+  if (cfl->GetValue("cos-transform", &cos_matrix_filename))
+    ReadKaldiObject(cos_matrix_filename, &cos_transform_);
+  if (cfl->GetValue("sin-transform", &sin_matrix_filename))
+    ReadKaldiObject(sin_matrix_filename, &sin_transform_);
+  cfl->GetValue("l1-regularizer", &l1_regularizer_);
 
   if (!ok)
     KALDI_ERR << "Bad initializer " << cfl->WholeLine();
@@ -3823,7 +3850,7 @@ void ConvolutionComponent::Backprop(const std::string &debug_info,
   }
 
   if (to_update != NULL)  {
-    to_update->Update(debug_info, in_value, out_deriv, out_deriv_batch);
+    to_update->Update(debug_info, in_value, out_deriv, out_deriv_batch, filter_params_);
   }
 
   // release memory
@@ -3833,7 +3860,136 @@ void ConvolutionComponent::Backprop(const std::string &debug_info,
     delete out_deriv_batch[p];
   }
 }
+// This function computes abs(fft(W)) for filter_params.
+// We use pre-computed discrete sine and cosine transform to
+// speed up fft computation.
+// Fft(w) is computed as C_mat * w -i S_mat w where C_mat and S_mat are
+// cosine and sin tranforms.
+void ConvolutionComponent::ComputeParamsAbsFft(const CuMatrixBase<BaseFloat> &filter_params,
+                                               CuMatrix<BaseFloat> *abs_fft_params,
+                                               CuMatrix<BaseFloat> *norm_cos_transform,
+                                               CuMatrix<BaseFloat> *norm_sin_transform) const {
+  int32 num_filters = filter_params.NumRows(),
+    filter_dim = filter_params.NumCols(),
+    num_fft_bins = cos_transform_.NumRows();
+  KALDI_ASSERT(cos_transform_.NumCols() == filter_dim &&
+               sin_transform_.NumCols() == filter_dim);
+  norm_cos_transform->Resize(num_fft_bins, num_filters);
+  norm_sin_transform->Resize(num_fft_bins, num_filters);
+  abs_fft_params->Resize(cos_transform_.NumRows(), num_filters);
+  norm_cos_transform->AddMatMat(1.0, cos_transform_, kNoTrans, filter_params, kTrans, 0.0); // CW
+  norm_sin_transform->AddMatMat(1.0, sin_transform_, kNoTrans, filter_params, kTrans, 0.0); // SW
 
+  abs_fft_params->AddMat(1.0, *norm_cos_transform);
+  abs_fft_params->ApplyPow(2.0);
+  CuMatrix<BaseFloat> sin_transform_pow(*norm_sin_transform);
+  sin_transform_pow.ApplyPow(2.0);
+  abs_fft_params->AddMat(1.0, sin_transform_pow);
+  abs_fft_params->ApplyPow(0.5); // (CW^2+SW^2)^0.5
+  abs_fft_params->ApplyFloor(1e-20); // apply floor if sum is less than threshold.
+
+  norm_cos_transform->DivElements(*abs_fft_params); // CW ./ (CW^2+SW^2)^0.5
+  norm_sin_transform->DivElements(*abs_fft_params); // SW ./ (CW^2+SW^2)^0.5
+}
+// update parameters
+// see function declaration in nnet-simple-component.h for details
+// update convolution filters using l1-regularization on fft of filters in frequency domain.
+// In this part, l1-reg applied on fft transform of filters learnt in time-domain
+// to constrain them to be sparse on frequency domain.
+// minimize l1_norm(y), where y = |fft(W)|, and W is filter in time-domain.
+// since y_i >= 0, then l1_norm(y) = sum_{i=1^n} y_i and fft(W) can be computed
+// using fft(w) = Cw + i Sw, where C and S are cosine and sin transform
+// defined as C_ij = cos(2pi * ij/N) and S_ij = sin(2pi *ij/N) and N is number
+// of fft-bins in frequency domain.
+void ConvolutionComponent::Update(const std::string &debug_info,
+                                  const CuMatrixBase<BaseFloat> &in_value,
+                                  const CuMatrixBase<BaseFloat> &out_deriv,
+                                  const std::vector<CuSubMatrix<BaseFloat> *>& out_deriv_batch,
+                                  const CuMatrixBase<BaseFloat> &filter_params) {
+  // useful dims
+  const int32 num_x_steps = (1 + (input_x_dim_ - filt_x_dim_) / filt_x_step_),
+              num_y_steps = (1 + (input_y_dim_ - filt_y_dim_) / filt_y_step_),
+              num_filters = filter_params_.NumRows(),
+              num_frames = out_deriv.NumRows(),
+              filter_dim = filter_params_.NumCols();
+  KALDI_ASSERT(out_deriv.NumRows() == num_frames &&
+               out_deriv.NumCols() ==
+               (num_filters * num_x_steps * num_y_steps));
+
+
+  CuMatrix<BaseFloat> filters_grad;
+  CuVector<BaseFloat> bias_grad;
+
+  CuMatrix<BaseFloat> input_patches(num_frames,
+                                    filter_dim * num_x_steps * num_y_steps,
+                                    kUndefined);
+  InputToInputPatches(in_value, &input_patches);
+
+  filters_grad.Resize(num_filters, filter_dim, kSetZero); // reset
+  bias_grad.Resize(num_filters, kSetZero); // reset
+
+  // create a single large matrix holding the smaller matrices
+  // from the vector container filters_grad_batch along the rows
+  CuMatrix<BaseFloat> filters_grad_blocks_batch(
+      num_x_steps * num_y_steps * filters_grad.NumRows(),
+      filters_grad.NumCols());
+
+  std::vector<CuSubMatrix<BaseFloat>* > filters_grad_batch, input_patch_batch;
+
+  for (int32 x_step = 0; x_step < num_x_steps; x_step++)  {
+    for (int32 y_step = 0; y_step < num_y_steps; y_step++)  {
+      int32 patch_number = x_step * num_y_steps + y_step;
+      filters_grad_batch.push_back(new CuSubMatrix<BaseFloat>(
+          filters_grad_blocks_batch.RowRange(
+              patch_number * filters_grad.NumRows(), filters_grad.NumRows())));
+
+      input_patch_batch.push_back(new CuSubMatrix<BaseFloat>(
+              input_patches.ColRange(patch_number * filter_dim, filter_dim)));
+    }
+  }
+
+  AddMatMatBatched<BaseFloat>(1.0, filters_grad_batch, out_deriv_batch, kTrans,
+                              input_patch_batch, kNoTrans, 1.0);
+
+  // add the row blocks together to filters_grad
+  filters_grad.AddMatBlocks(1.0, filters_grad_blocks_batch);
+
+  // create a matrix holding the col blocks sum of out_deriv
+  CuMatrix<BaseFloat> out_deriv_col_blocks_sum(out_deriv.NumRows(),
+                                               num_filters);
+
+  // add the col blocks together to out_deriv_col_blocks_sum
+  out_deriv_col_blocks_sum.AddMatBlocks(1.0, out_deriv);
+
+  bias_grad.AddRowSumMat(1.0, out_deriv_col_blocks_sum, 1.0);
+
+  // release memory
+  for (int32 p = 0; p < input_patch_batch.size(); p++) {
+    delete filters_grad_batch[p];
+    delete input_patch_batch[p];
+  }
+
+  //
+  // update
+  //
+  filter_params_.AddMat(learning_rate_, filters_grad);
+  bias_params_.AddVec(learning_rate_, bias_grad);
+
+  if (l1_regularizer_ != 0.0) {
+    CuMatrix<BaseFloat> cos_transformed_filters,
+      sin_transformed_filters,
+      abs_fft_filter_params;
+    ComputeParamsAbsFft(filter_params, &abs_fft_filter_params,
+                        &cos_transformed_filters, &sin_transformed_filters);
+    CuMatrix<BaseFloat> sum_updates(num_filters, filter_dim);
+    sum_updates.AddMatMat(1.0, cos_transformed_filters, kTrans,
+                          cos_transform_, kNoTrans, 0.0); // C * CW ./ (CW^2+SW^2)^0.5
+    sum_updates.AddMatMat(1.0, sin_transformed_filters, kTrans,
+                          sin_transform_, kNoTrans, 1.0); // .. + S * SW ./ (CW^2+SW^2)^0.5
+
+    filter_params_.AddMat(learning_rate_*l1_regularizer_, sum_updates);
+  }
+}
 
 // update parameters
 // see function declaration in nnet-simple-component.h for details
@@ -3937,6 +4093,14 @@ void ConvolutionComponent::Read(std::istream &is, bool binary) {
   bias_params_.Read(is, binary);
   std::string tok;
   ReadToken(is, binary, &tok);
+  if (tok == "<L1Regularizer>") {
+    ReadBasicType(is, binary, &l1_regularizer_);
+    ExpectToken(is, binary, "<CosTransform>");
+    cos_transform_.Read(is, binary);
+    ExpectToken(is, binary, "<SinTransform>");
+    sin_transform_.Read(is, binary);
+    ReadToken(is, binary, &tok);
+  }
   if (tok == "<IsGradient>") {
     ReadBasicType(is, binary, &is_gradient_);
     ExpectToken(is, binary, "</ConvolutionComponent>");
@@ -3968,6 +4132,16 @@ void ConvolutionComponent::Write(std::ostream &os, bool binary) const {
   filter_params_.Write(os, binary);
   WriteToken(os, binary, "<BiasParams>");
   bias_params_.Write(os, binary);
+  if (l1_regularizer_ != 0.0) {
+    WriteToken(os, binary, "<L1Regularizer>");
+    WriteBasicType(os, binary, l1_regularizer_);
+    KALDI_ASSERT(cos_transform_.NumCols() != 0);
+    WriteToken(os, binary, "<CosTransform>");
+    cos_transform_.Write(os, binary);
+    KALDI_ASSERT(sin_transform_.NumCols() != 0);
+    WriteToken(os, binary, "<SinTransform>");
+    sin_transform_.Write(os, binary);
+  }
   WriteToken(os, binary, "<IsGradient>");
   WriteBasicType(os, binary, is_gradient_);
   WriteToken(os, binary, "</ConvolutionComponent>");
@@ -4109,14 +4283,24 @@ void ShiftInputComponent::Backprop(const std::string &debug_info,
   in_deriv->SetZero();
 }
 
-const BaseFloat LogComponent::kLogFloor = 1.0e-10;
+std::string LogComponent::Info() const {
+  std::stringstream stream;
+  stream << NonlinearComponent::Info()
+         << ", log-floor=" << log_floor_;
+  return stream.str();
+}
+
+void LogComponent::InitFromConfig(ConfigLine *cfl) {
+  cfl->GetValue("log-floor", &log_floor_);
+  NonlinearComponent::InitFromConfig(cfl);
+}
 
 void* LogComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
                               const CuMatrixBase<BaseFloat> &in,
                               CuMatrixBase<BaseFloat> *out) const {
   // Apllies log function (x >= epsi ? log(x) : log(epsi)).
   out->CopyFromMat(in);
-  out->ApplyFloor(kLogFloor);
+  out->ApplyFloor(log_floor_);
   out->ApplyLog();
   return NULL;
 }
@@ -4133,34 +4317,94 @@ void LogComponent::Backprop(const std::string &debug_info,
     CuMatrix<BaseFloat> divided_in_value(in_value), floored_in_value(in_value);
     divided_in_value.Set(1.0);
     floored_in_value.CopyFromMat(in_value);
-    floored_in_value.ApplyFloor(kLogFloor); // (x > epsi ? x : epsi)
+    floored_in_value.ApplyFloor(log_floor_); // (x > epsi ? x : epsi)
 
     divided_in_value.DivElements(floored_in_value); // (x > epsi ? 1/x : 1/epsi)
     in_deriv->CopyFromMat(in_value);
-    in_deriv->Add(-1.0 * kLogFloor); // (x - epsi)
+    in_deriv->Add(-1.0 * log_floor_); // (x - epsi)
     in_deriv->ApplyHeaviside(); // (x > epsi ? 1 : 0)
     in_deriv->MulElements(divided_in_value); // (dy/dx: x  > epsi ? 1/x : 0)
     in_deriv->MulElements(out_deriv);   // dF/dx = dF/dy * dy/dx
   }
 }
 
-void LogComponent::StoreStats(const CuMatrixBase<BaseFloat> &in_value,
-                              const CuMatrixBase<BaseFloat> &out_value,
-                              void *memo) {
-  // only store stats about every other minibatch.
-  if (RandInt(0, 1) == 0)
-    return;
-  CuMatrix<BaseFloat> temp_deriv(out_value.NumRows(),
-                                 out_value.NumCols(),
-                                 kUndefined);
-  temp_deriv.CopyFromMat(in_value);
-  temp_deriv.Add(-1.0 * kLogFloor); // (x-epsi)
-  temp_deriv.ApplyHeaviside();
-  temp_deriv.DivElements(out_value); // x > epsi ? 1/log(x) : 0)
-  temp_deriv.ApplyExp(); // (x > epsi ? 1/x : 0)
+void LogComponent::Read(std::istream &is, bool binary) {
+  std::ostringstream ostr_beg, ostr_end;
+  ostr_beg << "<" << Type() << ">"; // e.g. "<SigmoidComponent>"
+  ostr_end << "</" << Type() << ">"; // e.g. "</SigmoidComponent>"
+  ExpectOneOrTwoTokens(is, binary, ostr_beg.str(), "<Dim>");
+  ReadBasicType(is, binary, &dim_); // Read dimension.
+  ExpectToken(is, binary, "<ValueAvg>");
+  value_sum_.Read(is, binary);
+  ExpectToken(is, binary, "<DerivAvg>");
+  deriv_sum_.Read(is, binary);
+  ExpectToken(is, binary, "<Count>");
+  ReadBasicType(is, binary, &count_);
+  value_sum_.Scale(count_);
+  deriv_sum_.Scale(count_);
 
-  StoreStatsInternal(out_value, &temp_deriv);
+  std::string token;
+  ReadToken(is, binary, &token);
+  if (token == "<SelfRepairLowerThreshold>") {
+    ReadBasicType(is, binary, &self_repair_lower_threshold_);
+    ReadToken(is, binary, &token);
+  }
+  if (token == "<SelfRepairUpperThreshold>") {
+    ReadBasicType(is, binary, &self_repair_upper_threshold_);
+    ReadToken(is, binary, &token);
+  }
+  if (token == "<SelfRepairScale>") {
+    ReadBasicType(is, binary, &self_repair_scale_);
+    ReadToken(is, binary, &token);
+  }
+  if (token == "<LogFloor>") {
+    ReadBasicType(is, binary, &log_floor_);
+    ReadToken(is, binary, &token);
+  }
+  if (token != ostr_end.str()) {
+    KALDI_ERR << "Expected token " << ostr_end.str()
+              << ", got " << token;
+  }
 }
+
+void LogComponent::Write(std::ostream &os, bool binary) const {
+  std::ostringstream ostr_beg, ostr_end;
+  ostr_beg << "<" << Type() << ">"; // e.g. "<SigmoidComponent>"
+  ostr_end << "</" << Type() << ">"; // e.g. "</SigmoidComponent>"
+  WriteToken(os, binary, ostr_beg.str());
+  WriteToken(os, binary, "<Dim>");
+  WriteBasicType(os, binary, dim_);
+  // Write the values and derivatives in a count-normalized way, for
+  // greater readability in text form.
+  WriteToken(os, binary, "<ValueAvg>");
+  Vector<BaseFloat> temp(value_sum_);
+  if (count_ != 0.0) temp.Scale(1.0 / count_);
+  temp.Write(os, binary);
+  WriteToken(os, binary, "<DerivAvg>");
+
+  temp.Resize(deriv_sum_.Dim(), kUndefined);
+  temp.CopyFromVec(deriv_sum_);
+  if (count_ != 0.0) temp.Scale(1.0 / count_);
+  temp.Write(os, binary);
+  WriteToken(os, binary, "<Count>");
+  WriteBasicType(os, binary, count_);
+  if (self_repair_lower_threshold_ != kUnsetThreshold) {
+    WriteToken(os, binary, "<SelfRepairLowerThreshold>");
+    WriteBasicType(os, binary, self_repair_lower_threshold_);
+  }
+  if (self_repair_upper_threshold_ != kUnsetThreshold) {
+    WriteToken(os, binary, "<SelfRepairUpperThreshold>");
+    WriteBasicType(os, binary, self_repair_upper_threshold_);
+  }
+  if (self_repair_scale_ != 0.0) {
+    WriteToken(os, binary, "<SelfRepairScale>");
+    WriteBasicType(os, binary, self_repair_scale_);
+  }
+  WriteToken(os, binary, "<LogFloor>");
+  WriteBasicType(os, binary, log_floor_);
+  WriteToken(os, binary, ostr_end.str());
+}
+
 // aquire input dim
 int32 MaxpoolingComponent::InputDim() const {
   return input_x_dim_ * input_y_dim_ * input_z_dim_;

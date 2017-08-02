@@ -1729,6 +1729,16 @@ class ConvolutionComponent: public UpdatableComponent {
               const CuMatrixBase<BaseFloat> &out_deriv,
               const std::vector<CuSubMatrix<BaseFloat> *>& out_deriv_batch);
 
+  void Update(const std::string &debug_info,
+              const CuMatrixBase<BaseFloat> &in_value,
+              const CuMatrixBase<BaseFloat> &out_deriv,
+              const std::vector<CuSubMatrix<BaseFloat> *>& out_deriv_batch,
+              const CuMatrixBase<BaseFloat> &filter_params);
+
+  void ComputeParamsAbsFft(const CuMatrixBase<BaseFloat> &filter_params,
+                           CuMatrix<BaseFloat> *abs_fft_params,
+                           CuMatrix<BaseFloat> *normalized_cos_trans,
+                           CuMatrix<BaseFloat> *normalized_sin_tran) const;
 
   virtual void Read(std::istream &is, bool binary);
   virtual void Write(std::ostream &os, bool binary) const;
@@ -1769,7 +1779,6 @@ class ConvolutionComponent: public UpdatableComponent {
   void Update(const std::string &debug_info,
               const CuMatrixBase<BaseFloat> &in_value,
               const CuMatrixBase<BaseFloat> &out_deriv);
-
 
  private:
   int32 input_x_dim_;   // size of the input along x-axis
@@ -1813,6 +1822,21 @@ class ConvolutionComponent: public UpdatableComponent {
   CuVector<BaseFloat> bias_params_;
   // the filter-specific bias vector (i.e., there is a seperate bias added
   // to the output of each filter).
+
+  CuMatrix<BaseFloat> cos_transform_;
+  // The discrete cosine transform matrix used to transform time-domain
+  // filter params to frequency domain and apply l1-regularization
+  // on parameters in frequency domain. It is useful in raw waveform setup
+  // which helps to learn filters which are sparse in frequncy domain.
+
+  CuMatrix<BaseFloat> sin_transform_;
+  // The discrete sine transform matrix used to transform time-domain filter
+  // parameters to frequency domain.
+
+  BaseFloat l1_regularizer_;
+  // If nonzero, the l1-regularization is applied on convolution filters in
+  // frequency domain.
+
   bool is_gradient_;
 
   void InputToInputPatches(const CuMatrixBase<BaseFloat>& in,
@@ -2068,12 +2092,17 @@ class LogComponent: public NonlinearComponent {
  public:
   //explicit LogComponent(int32 dim): dim_(dim) { }
   explicit LogComponent(const LogComponent &other):
-    NonlinearComponent(other) { }
-  LogComponent() { }
+    NonlinearComponent(other), log_floor_(other.log_floor_) { }
+  LogComponent(): log_floor_(1e-20) { }
   virtual std::string Type() const { return "LogComponent"; }
   virtual int32 Properties() const {
     return kSimpleComponent|kBackpropNeedsInput|kStoresStats;
   }
+
+  virtual std::string Info() const;
+
+  virtual void InitFromConfig(ConfigLine *cfl);
+
   virtual void* Propagate(const ComponentPrecomputedIndexes *indexes,
                           const CuMatrixBase<BaseFloat> &in,
                           CuMatrixBase<BaseFloat> *out) const;
@@ -2085,14 +2114,16 @@ class LogComponent: public NonlinearComponent {
                         void *memo,
                         Component *to_update,
                         CuMatrixBase<BaseFloat> *in_deriv) const;
-  virtual void StoreStats(const CuMatrixBase<BaseFloat> &in_value,
-                          const CuMatrixBase<BaseFloat> &out_value,
-                          void *memo);
 
   virtual Component* Copy() const { return new LogComponent(*this); }
+
+  virtual void Read(std::istream &is, bool binary);
+
+  virtual void Write(std::ostream &os, bool binary) const;
+
  private:
   LogComponent &operator = (const LogComponent &other); // Disallow.
-  static const BaseFloat kLogFloor;
+  BaseFloat log_floor_;
 };
 
 

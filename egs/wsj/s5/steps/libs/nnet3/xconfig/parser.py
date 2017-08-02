@@ -48,11 +48,12 @@ config_to_layer = {
         'shift-timeconv-permute-relu-log-batchnorm-layer': xlayers.XconfigConvLayer,
         'shift-timeconv-permute-relu-batchnorm-layer': xlayers.XconfigConvLayer,
         'shift-timeconv-maxpool-relu-batchnorm-layer': xlayers.XconfigConvLayer,
+        'shift-oldtimeconv-maxpool-relu-batchnorm-layer': xlayers.XconfigConvLayer,
         'timeconv-relu-log-batchnorm-layer': xlayers.XconfigConvLayer,
         'shift-timeconv-relu-renorm-layer': xlayers.XconfigConvLayer,
         'conv-relu-dropout-layer': xlayers.XconfigConvLayer,
         'res-block': xlayers.XconfigResBlock,
-        'channel-average-layer': xlayers.ChannelAverageLayer
+        'channel-average-layer': xlayers.ChannelAverageLayer,
 }
 
 # Turn a config line and a list of previous layers into

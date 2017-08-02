@@ -113,7 +113,7 @@ class XconfigConvLayer(XconfigLayerBase):
     def __init__(self, first_token, key_to_value, prev_names = None):
         operations = first_token.split('-')[:-1]
         for operation in operations:
-            assert operation in ['timeconv', 'shift', 'conv', 'renorm', 'batchnorm', 'relu', 'dropout', 'log', 'permute', 'maxpool']
+            assert operation in ['oldtimeconv', 'timeconv', 'shift', 'conv', 'renorm', 'batchnorm', 'relu', 'dropout', 'log', 'permute', 'maxpool']
         XconfigLayerBase.__init__(self, first_token, key_to_value, prev_names)
 
     def set_default_configs(self):
@@ -284,12 +284,6 @@ class XconfigConvLayer(XconfigLayerBase):
         # operations = [ 'relu', 'conv', 'renorm' ]
 
         input_dim = self.descriptors['input']['dim']
-        if 'timeconv' in operations:
-            cur_height = self.config['sub-frames-per-frame']
-        elif 'conv' in operations:
-            cur_height = self.config['height-out']
-        cur_num_filters = self.config['num-filters-out']
-        cur_dim = cur_num_filters * cur_height
         for operation in operations:
             if operation == 'shift':
                 a = []
@@ -305,19 +299,45 @@ class XconfigConvLayer(XconfigLayerBase):
                                'input={1}'.format(name, cur_descriptor))
                 input_dim = self.config['output-dim'] # input-dim changed after shift.
             elif operation == 'maxpool':
-                assert('timeconv' in operations)
+                assert('timeconv' in operations or 'oldtimeconv' in operations)
                 a = []
-                a.append('input-x-dim={0}'.format(self.config['sub-frames-per-frame']))
+                a.append('input-x-dim={0}'.format(cur_height))
                 a.append('input-z-dim={0}'.format(self.config['num-filters-out']))
-                a.append('pool-x-size={0}'.format(self.config['sub-frames-per-frame']))
+                a.append('pool-x-size={0}'.format(cur_height))
                 a.append('input-y-dim=1 pool-y-size=1 pool-z-size=1 pool-x-step={0} '
-                         'pool-y-step=1 pool-z-step=1'.format(self.config['sub-frames-per-frame']))
+                         'pool-y-step=1 pool-z-step=1'.format(cur_height))
                 pool_opts = ' '.join(a)
                 configs.append('component name={0}.maxpool type=MaxpoolingComponent '
                          '{1}'.format(name, pool_opts))
                 configs.append('component-node name={0}.maxpool component={0}.maxpool '
                                'input={1}'.format(name, cur_descriptor))
                 cur_dim = cur_num_filters
+            elif operation == 'oldtimeconv':
+                a = []
+                for opt_name in [
+                        'param-stddev', 'bias-stddev', 'use-natural-gradient',
+                        'max-change', 'rank-in', 'rank-out', 'num-minibatches-history',
+                        'alpha-in', 'alpha-out',
+                        'learning-rate-factor']:
+                    value = self.config[opt_name]
+                    if  value != '':
+                        a.append('{0}={1}'.format(opt_name, value))
+                samples_per_sub_frame = input_dim / self.config['sub-frames-per-frame']
+                filter_dim = (self.config['sub-frames-left-context'] +
+                    self.config['sub-frames-right-context'] + 1) * samples_per_sub_frame
+                a.append('input-x-dim={0} filt-x-dim={1}'.format(input_dim, filter_dim))
+                a.append('input-y-dim=1 input-z-dim=1 filt-y-dim=1 filt-y-step=1')
+                a.append('filt-x-step={0} num-filters={1}'.format(samples_per_sub_frame, self.config['num-filters-out']))
+                a.append('input-vectorization-order=zyx')
+
+                conv_opts = ' '.join(a)
+                configs.append('component name={0}.oldtimeconv type=ConvolutionComponent '
+                               '{1}'.format(name, conv_opts))
+                configs.append('component-node name={0}.oldtimeconv component={0}.oldtimeconv '
+                               'input={1}'.format(name, cur_descriptor))
+                cur_height = (input_dim - filter_dim) / samples_per_sub_frame + 1
+                cur_num_filters = self.config['num-filters-out']
+                cur_dim = cur_num_filters * cur_height
             elif operation == 'timeconv':
                 a = []
                 for opt_name in [
@@ -338,6 +358,7 @@ class XconfigConvLayer(XconfigLayerBase):
                                'input={1}'.format(name, cur_descriptor))
                 cur_num_filters = self.config['num-filters-out']
                 cur_height = self.config['sub-frames-per-frame']
+                cur_dim = cur_num_filters * cur_height
             elif operation == 'conv':
                 a = []
                 for opt_name in [
@@ -358,6 +379,7 @@ class XconfigConvLayer(XconfigLayerBase):
                                'input={1}'.format(name, cur_descriptor))
                 cur_num_filters = self.config['num-filters-out']
                 cur_height = self.config['height-out']
+                cur_dim = cur_num_filters * cur_height
             elif operation == 'batchnorm':
                 configs.append('component name={0}.batchnorm  type=BatchNormComponent dim={1} '
                                'block-dim={2} target-rms={3}'.format(
@@ -392,8 +414,6 @@ class XconfigConvLayer(XconfigLayerBase):
                 configs.append('component-node name={0}.log component={0}.log '
                                 'input={1}'.format(name, cur_descriptor))
             elif operation == 'permute':
-                cur_num_filters = self.config['num-filters-out']
-                cur_height = self.config['sub-frames-per-frame']
                 column_map = []
                 for x in range(0, cur_num_filters):
                     for y in range(0, cur_height):

@@ -332,3 +332,21 @@ def write_idct_matrix(feat_dim, cepstral_lifter, file_path):
     for k in range(0, feat_dim):
         idct_matrix[k].append(0)
     write_kaldi_matrix(file_path, idct_matrix)
+
+def compute_sin_cos_transform_matrix(K, N, compute_cosine=True):
+    matrix = [[0] * K for i in range(N)]
+    if compute_cosine:
+        for k in range(0, K):
+            for n in range(0, N):
+                matrix[n][k] = math.cos(2* math.pi / float(N) * n * k)
+    else:
+        for k in range(0, K):
+            for n in range(0, N):
+                matrix[n][k] = -1.0 * math.sin(2* math.pi / float(N) * n * k)
+    return matrix
+
+def write_sin_cos_transform_matrix(feat_dim, fft_dim, file_path, compute_cosine=True):
+    # generate discrete sin and cosine transform and write to the file
+    transform_matrix = compute_sin_cos_transform_matrix(feat_dim, fft_dim, compute_cosine=compute_cosine)
+    write_kaldi_matrix(file_path, transform_matrix)
+
