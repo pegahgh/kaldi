@@ -88,22 +88,36 @@ void PnormComponent::Write(std::ostream &os, bool binary) const {
   WriteToken(os, binary, "</PnormComponent>");
 }
 
+DropoutComponent::DropoutComponent(const DropoutComponent &other):
+  dim_(other.dim_),
+  dropout_proportion_(other.dropout_proportion_),
+  dropout_per_frame_(other.dropout_per_frame_),
+  block_dropout_size_(other.block_dropout_size_) { test_mode_ = other.test_mode_; }
+
+Component* DropoutComponent::Copy() const {
+  DropoutComponent *ans = new DropoutComponent(*this);
+  return ans;
+}
 
 void DropoutComponent::Init(int32 dim, BaseFloat dropout_proportion,
-                            bool dropout_per_frame) {
+                            bool dropout_per_frame,
+                            int32 block_dropout_size) {
   dropout_proportion_ = dropout_proportion;
   dropout_per_frame_ = dropout_per_frame;
+  block_dropout_size_ = block_dropout_size;
   dim_ = dim;
 }
 
 void DropoutComponent::InitFromConfig(ConfigLine *cfl) {
   int32 dim = 0;
   BaseFloat dropout_proportion = 0.0;
+  int32 block_dropout_size = 1;
   bool dropout_per_frame = false;
   test_mode_ = false;
   bool ok = cfl->GetValue("dim", &dim) &&
     cfl->GetValue("dropout-proportion", &dropout_proportion);
   cfl->GetValue("dropout-per-frame", &dropout_per_frame);
+  cfl->GetValue("block-dropout-size", &block_dropout_size);
   // It only makes sense to set test-mode in the config for testing purposes.
   cfl->GetValue("test-mode", &test_mode_);
     // for this stage, dropout is hard coded in
@@ -112,14 +126,15 @@ void DropoutComponent::InitFromConfig(ConfigLine *cfl) {
       dropout_proportion < 0.0 || dropout_proportion > 1.0)
        KALDI_ERR << "Invalid initializer for layer of type "
                  << Type() << ": \"" << cfl->WholeLine() << "\"";
-  Init(dim, dropout_proportion, dropout_per_frame);
+  Init(dim, dropout_proportion, dropout_per_frame, block_dropout_size);
 }
 
 std::string DropoutComponent::Info() const {
   std::ostringstream stream;
   stream << Type() << ", dim=" << dim_
          << ", dropout-proportion=" << dropout_proportion_
-         << ", dropout-per-frame=" << (dropout_per_frame_ ? "true" : "false");
+         << ", dropout-per-frame=" << (dropout_per_frame_ ? "true" : "false")
+         << ", block-dropout-size=" << block_dropout_size_;
   return stream.str();
 }
 
@@ -137,15 +152,25 @@ void* DropoutComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
     return NULL;
   }
   if (!dropout_per_frame_) {
-    // This const_cast is only safe assuming you don't attempt
-    // to use multi-threaded code with the GPU.
-    const_cast<CuRand<BaseFloat>&>(random_generator_).RandUniform(out);
-
-    out->Add(-dropout);  // now, a proportion "dropout" will be <0.0
-    // apply the function (x>0?1:0).  Now, a proportion
-    // "dropout" will be zero and (1 - dropout) will be 1.0.
-    out->ApplyHeaviside();
-
+    if (block_dropout_size_ > 1) {
+      KALDI_ASSERT(out->NumCols() % block_dropout_size_ == 0);
+      int32 num_blocks = out->NumCols() / block_dropout_size_;
+      CuMatrix<BaseFloat> blocked_out(num_blocks, out->NumRows());
+      const_cast<CuRand<BaseFloat>&>(random_generator_).RandUniform(&blocked_out);
+      blocked_out.Add(-dropout);
+      blocked_out.ApplyHeaviside();
+      for (int32 block_num = 0; block_num < num_blocks; block_num++) {
+        out->ColRange(block_num * block_dropout_size_, block_dropout_size_).CopyColsFromVec(blocked_out.Row(block_num));
+      }
+    } else {
+      // This const_cast is only safe assuming you don't attempt
+      // to use multi-threaded code with the GPU.
+      const_cast<CuRand<BaseFloat>&>(random_generator_).RandUniform(out);
+      out->Add(-dropout);  // now, a proportion "dropout" will be <0.0
+      // apply the function (x>0?1:0).  Now, a proportion
+      // "dropout" will be zero and (1 - dropout) will be 1.0.
+      out->ApplyHeaviside();
+    }
     out->MulElements(in);
   } else {
     // randomize the dropout matrix by row,
@@ -199,6 +224,14 @@ void DropoutComponent::Read(std::istream &is, bool binary) {
   } else {
     dropout_per_frame_ = false;
   }
+
+  if (token == "<BlockDropoutSize>") {
+    ReadBasicType(is, binary, &block_dropout_size_);
+    ReadToken(is, binary, &token);
+  } else {
+    block_dropout_size_ = 1;
+  }
+
   if (token == "<TestMode>") {
     ReadBasicType(is, binary, &test_mode_);  // read test mode
     ExpectToken(is, binary, "</DropoutComponent>");
@@ -216,6 +249,8 @@ void DropoutComponent::Write(std::ostream &os, bool binary) const {
   WriteBasicType(os, binary, dropout_proportion_);
   WriteToken(os, binary, "<DropoutPerFrame>");
   WriteBasicType(os, binary, dropout_per_frame_);
+  WriteToken(os, binary, "<BlockDropoutSize>");
+  WriteBasicType(os, binary, block_dropout_size_);
   WriteToken(os, binary, "<TestMode>");
   WriteBasicType(os, binary, test_mode_);
   WriteToken(os, binary, "</DropoutComponent>");
@@ -1140,8 +1175,8 @@ AffineComponent::AffineComponent(const CuMatrixBase<BaseFloat> &linear_params,
                bias_params.Dim() != 0);
 }
 
-void AffineComponent::SetParams(const VectorBase<BaseFloat> &bias,
-                                const MatrixBase<BaseFloat> &linear) {
+void AffineComponent::SetParams(const CuVectorBase<BaseFloat> &bias,
+                                const CuMatrixBase<BaseFloat> &linear) {
   bias_params_ = bias;
   linear_params_ = linear;
   KALDI_ASSERT(bias_params_.Dim() == linear_params_.NumRows());
@@ -1314,69 +1349,6 @@ void AffineComponent::UnVectorize(const VectorBase<BaseFloat> &params) {
   linear_params_.CopyRowsFromVec(params.Range(0, InputDim() * OutputDim()));
   bias_params_.CopyFromVec(params.Range(InputDim() * OutputDim(),
                                         OutputDim()));
-}
-
-Component *AffineComponent::CollapseWithNext(
-    const AffineComponent &next_component) const {
-  AffineComponent *ans = dynamic_cast<AffineComponent*>(this->Copy());
-  KALDI_ASSERT(ans != NULL);
-  // Note: it's possible that "ans" is really of a derived type such
-  // as AffineComponentPreconditioned, but this will still work.
-  // the "copy" call will copy things like learning rates, "alpha" value
-  // for preconditioned component, etc.
-  ans->linear_params_.Resize(next_component.OutputDim(), InputDim());
-  ans->bias_params_ = next_component.bias_params_;
-
-  ans->linear_params_.AddMatMat(1.0, next_component.linear_params_, kNoTrans,
-                                this->linear_params_, kNoTrans, 0.0);
-  ans->bias_params_.AddMatVec(1.0, next_component.linear_params_, kNoTrans,
-                              this->bias_params_, 1.0);
-  return ans;
-}
-
-Component *AffineComponent::CollapseWithNext(
-    const FixedAffineComponent &next_component) const {
-  // If at least one was non-updatable, make the whole non-updatable.
-  FixedAffineComponent *ans =
-      dynamic_cast<FixedAffineComponent*>(next_component.Copy());
-  KALDI_ASSERT(ans != NULL);
-  ans->linear_params_.Resize(next_component.OutputDim(), InputDim());
-  ans->bias_params_ = next_component.bias_params_;
-
-  ans->linear_params_.AddMatMat(1.0, next_component.linear_params_, kNoTrans,
-                                this->linear_params_, kNoTrans, 0.0);
-  ans->bias_params_.AddMatVec(1.0, next_component.linear_params_, kNoTrans,
-                              this->bias_params_, 1.0);
-  return ans;
-}
-
-Component *AffineComponent::CollapseWithNext(
-    const FixedScaleComponent &next_component) const {
-  KALDI_ASSERT(this->OutputDim() == next_component.InputDim());
-  AffineComponent *ans =
-      dynamic_cast<AffineComponent*>(this->Copy());
-  KALDI_ASSERT(ans != NULL);
-  ans->linear_params_.MulRowsVec(next_component.scales_);
-  ans->bias_params_.MulElements(next_component.scales_);
-
-  return ans;
-}
-
-Component *AffineComponent::CollapseWithPrevious(
-    const FixedAffineComponent &prev_component) const {
-  // If at least one was non-updatable, make the whole non-updatable.
-  FixedAffineComponent *ans =
-      dynamic_cast<FixedAffineComponent*>(prev_component.Copy());
-  KALDI_ASSERT(ans != NULL);
-
-  ans->linear_params_.Resize(this->OutputDim(), prev_component.InputDim());
-  ans->bias_params_ = this->bias_params_;
-
-  ans->linear_params_.AddMatMat(1.0, this->linear_params_, kNoTrans,
-                                prev_component.linear_params_, kNoTrans, 0.0);
-  ans->bias_params_.AddMatVec(1.0, this->linear_params_, kNoTrans,
-                              prev_component.bias_params_, 1.0);
-  return ans;
 }
 
 RepeatedAffineComponent::RepeatedAffineComponent(const RepeatedAffineComponent & component) :
@@ -2670,8 +2642,8 @@ std::string NaturalGradientAffineComponent::Info() const {
   PrintParameterStats(stream, "bias", bias_params_, true);
   stream << ", rank-in=" << rank_in_
          << ", rank-out=" << rank_out_
-         << ", num_samples_history=" << num_samples_history_
-         << ", update_period=" << update_period_
+         << ", num-samples-history=" << num_samples_history_
+         << ", update-period=" << update_period_
          << ", alpha=" << alpha_;
   return stream.str();
 }
@@ -2762,6 +2734,12 @@ void NaturalGradientAffineComponent::Add(BaseFloat alpha, const Component &other
   KALDI_ASSERT(other != NULL);
   linear_params_.AddMat(alpha, other->linear_params_);
   bias_params_.AddVec(alpha, other->bias_params_);
+}
+
+/// virtual
+void NaturalGradientAffineComponent::FreezeNaturalGradient(bool freeze) {
+  preconditioner_in_.Freeze(freeze);
+  preconditioner_out_.Freeze(freeze);
 }
 
 std::string FixedAffineComponent::Info() const {
@@ -3356,6 +3334,11 @@ void NaturalGradientPerElementScaleComponent::Update(
   CuVector<BaseFloat> delta_scales(scales_.Dim());
   delta_scales.AddRowSumMat(scale * learning_rate_, derivs_per_frame);
   scales_.AddVec(1.0, delta_scales);
+}
+
+/// virtual
+void NaturalGradientPerElementScaleComponent::FreezeNaturalGradient(bool freeze) {
+  preconditioner_.Freeze(freeze);
 }
 
 // Constructors for the convolution component
@@ -4193,11 +4176,25 @@ void ConvolutionComponent::UnVectorize(const VectorBase<BaseFloat> &params) {
   bias_params_.CopyFromVec(params.Range(num_filter_params, bias_params_.Dim()));
 }
 
+ShiftInputComponent::ShiftInputComponent(const ShiftInputComponent &other):
+  RandomComponent(other),
+  input_dim_(other.input_dim_),
+  output_dim_(other.output_dim_),
+  max_shift_(other.max_shift_),
+  rand_vol_var_(other.rand_vol_var_),
+  shift_per_frame_(other.shift_per_frame_) { }
+
+Component* ShiftInputComponent::Copy() const {
+  ShiftInputComponent *ans = new ShiftInputComponent(*this);
+  return ans;
+}
+
 std::string ShiftInputComponent::Info() const {
   std::stringstream stream;
   stream << Type() << ", input-dim=" << input_dim_
          << ", output-dim=" << output_dim_
-         << ", max-shift=" << max_shift_;
+         << ", max-shift=" << max_shift_
+         << ", shift-per-frame=" << shift_per_frame_;
   return stream.str();
 }
 
@@ -4214,14 +4211,18 @@ void ShiftInputComponent::Init(int32 input_dim, int32 output_dim, BaseFloat max_
 
 void ShiftInputComponent::InitFromConfig(ConfigLine *cfl) {
   bool ok = true;
+  test_mode_ = false;
   int32 input_dim, output_dim;
   BaseFloat max_shift = 1.0, rand_vol_var = 0.0;
   ok = ok && cfl->GetValue("input-dim", &input_dim);
   ok = ok && cfl->GetValue("output-dim", &output_dim);
+  // It only makes sense to set test-mode in the config for testing purposes.
+  cfl->GetValue("test-mode", &test_mode_);
   if (cfl->GetValue("max-shift", &max_shift))
     KALDI_ASSERT(max_shift >= 0.0 && max_shift <= 1.0);
   if (cfl->GetValue("rand-vol-var", &rand_vol_var))
     KALDI_ASSERT(rand_vol_var >= 0 && rand_vol_var <= 1.0);
+  cfl->GetValue("shift-per-frame", &shift_per_frame_);
   Init(input_dim, output_dim, max_shift, rand_vol_var);
 }
 
@@ -4240,7 +4241,17 @@ void ShiftInputComponent::Read(std::istream &is, bool binary) {
       ReadToken(is, binary, &token);
     }
   }
-  KALDI_ASSERT(token == "</ShiftInputComponent>");
+  if (token == "<ShiftPerFrame>") {
+    ReadBasicType(is, binary, &shift_per_frame_);
+    ReadToken(is, binary, &token);
+  }
+  if (token == "<TestMode>") {
+    ReadBasicType(is, binary, &test_mode_);  // read test mode
+    ExpectToken(is, binary, "</ShiftInputComponent>");
+  } else {
+    test_mode_ = false;
+    KALDI_ASSERT(token == "</ShiftInputComponent>");
+  }
 }
 
 void ShiftInputComponent::Write(std::ostream &os, bool binary) const {
@@ -4253,22 +4264,47 @@ void ShiftInputComponent::Write(std::ostream &os, bool binary) const {
   WriteBasicType(os, binary, max_shift_);
   WriteToken(os, binary, "<RandVolVar>");
   WriteBasicType(os, binary, rand_vol_var_);
+  WriteToken(os, binary, "<ShiftPerFrame>");
+  WriteBasicType(os, binary, shift_per_frame_);
+  WriteToken(os, binary, "<TestMode>");
+  WriteBasicType(os, binary, test_mode_);
   WriteToken(os, binary, "</ShiftInputComponent>");
 }
 
 void* ShiftInputComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
                                      const CuMatrixBase<BaseFloat> &in,
                                      CuMatrixBase<BaseFloat> *out) const {
-  int32 in_out_diff = input_dim_ - output_dim_, shift = 0;
-  KALDI_ASSERT(in_out_diff > 0);
-  int32 max_shift_int = static_cast<int32>(max_shift_ * in_out_diff);
-  // Generate random shift integer value.
-  shift = RandInt(0, max_shift_int);
-  out->CopyFromMat(in.Range(0, in.NumRows(), shift, output_dim_));
+  if (test_mode_)
+    out->CopyFromMat(in.Range(0,in.NumRows(), 0, output_dim_));
+  else {
+    int32 in_out_diff = input_dim_ - output_dim_,
+      shift;
+    KALDI_ASSERT(in_out_diff > 0);
+    int32 max_shift_int = static_cast<int32>(max_shift_ * in_out_diff);
+    if (shift_per_frame_) {
+      int32 block_size = 1024,
+        num_blocks = out->NumRows() / block_size;
+      CuMatrix<BaseFloat> tmp(1, num_blocks, kUndefined);
+      const_cast<CuRand<BaseFloat>&>(random_generator_).RandUniform(&tmp);
+      tmp.Scale(max_shift_int);
+      for (int i = 0; i < num_blocks; i++) {
+        int32 start_row = i * block_size,
+          num_shifted_row = std::min(block_size, out->NumRows() - start_row);
+        shift = static_cast<int32>(tmp(0,i) + 0.5);
+        CuSubMatrix<BaseFloat> out_row = out->Range(start_row, num_shifted_row,
+                                                    0, output_dim_);
+        out_row.CopyFromMat(in.Range(start_row, num_shifted_row, shift, output_dim_));
+      }
+    } else {
+    // Generate random shift integer value.
+    shift = RandInt(0, max_shift_int);
+    out->CopyFromMat(in.Range(0, in.NumRows(), shift, output_dim_));
 
-  BaseFloat rand_vol = (1.0 + rand_vol_var_ *  (Rand() % 2 ? -1.0 : 1.0) * RandUniform());
-  if (rand_vol != 0 && rand_vol != 1.0)
-    out->Scale(rand_vol);
+    BaseFloat rand_vol = (1.0 + rand_vol_var_ *  (Rand() % 2 ? -1.0 : 1.0) * RandUniform());
+    if (rand_vol != 0 && rand_vol != 1.0)
+      out->Scale(rand_vol);
+    }
+  }
   return NULL;
 }
 
@@ -4283,25 +4319,347 @@ void ShiftInputComponent::Backprop(const std::string &debug_info,
   in_deriv->SetZero();
 }
 
+void PowerComponent::Scale(BaseFloat scale) {
+  if (scale == 0.0) {
+    offset_.SetZero();
+    power_.SetZero();
+  } else {
+    offset_.Scale(scale);
+    power_.Scale(scale);
+  }
+}
+
+void PowerComponent::Add(BaseFloat alpha,
+                         const Component &other_in) {
+  const PowerComponent *other =
+    dynamic_cast<const PowerComponent*>(&other_in);
+  KALDI_ASSERT(other != NULL);
+  offset_.AddVec(alpha, other->offset_);
+  power_.AddVec(alpha, other->power_);
+}
+
+
+void PowerComponent::PerturbParams(BaseFloat stddev) {
+  int32 num_blocks = dim_ / block_dim_;
+  CuVector<BaseFloat> offset_rands(num_blocks, kUndefined),
+    power_rands(num_blocks, kUndefined);
+  offset_rands.SetRandn();
+  power_rands.SetRandn();
+  offset_.AddVec(stddev, offset_rands);
+  power_.AddVec(stddev, power_rands);
+}
+
+BaseFloat PowerComponent::DotProduct(
+    const UpdatableComponent &other_in) const {
+  const PowerComponent *other =
+    dynamic_cast<const PowerComponent*>(&other_in);
+  return (VecVec(offset_, other->offset_) + VecVec(power_, other->power_));
+}
+
+int32 PowerComponent::NumParameters() const {
+  return (2 * (dim_ / block_dim_));
+}
+
+void PowerComponent::Vectorize(VectorBase<BaseFloat> *params) const {
+  int32 num_blocks = dim_ / block_dim_;
+  KALDI_ASSERT(params->Dim() == this->NumParameters());
+  params->Range(0, num_blocks).CopyFromVec(offset_);
+  params->Range(num_blocks, num_blocks).CopyFromVec(power_);
+}
+
+void PowerComponent::UnVectorize(const VectorBase<BaseFloat> &params) {
+  int32 num_blocks = dim_ / block_dim_;
+  offset_.CopyFromVec(params.Range(0, num_blocks));
+  power_.CopyFromVec(params.Range(num_blocks, num_blocks));
+}
+
+std::string PowerComponent::Info() const {
+  std::stringstream stream;
+  int32 num_blocks = dim_ / block_dim_;
+  BaseFloat power_mean = power_.Sum() / num_blocks,
+    offset_mean = offset_.Sum() / num_blocks,
+    power_stddev = 0.0, offset_stddev = 0.0;
+  for (int32 i = 0; i < num_blocks; i++) {
+    power_stddev += std::pow((power_(i) - power_mean), 2);
+    offset_stddev += std::pow((offset_(i) - offset_mean), 2);
+  }
+  power_stddev = std::pow(power_stddev / num_blocks, 0.5);
+  offset_stddev = std::pow(offset_stddev / num_blocks, 0.5);
+
+  stream << UpdatableComponent::Info()
+         << ", power-average=" << power_.Sum() / num_blocks
+         << ", power-stddev=" << power_stddev
+         << ", offset-average=" << offset_.Sum() / num_blocks
+         << ", offset-stddev=" << offset_stddev
+         << " with block-dim=" << block_dim_;
+  return stream.str();
+}
+
+void PowerComponent::InitFromConfig(ConfigLine *cfl) {
+  int32 dim = -1;
+  bool ok = true;
+  std::string power_filename, offset_filename;
+  InitLearningRatesFromConfig(cfl);
+  ok = ok && (cfl->GetValue("dim", &dim));
+  cfl->GetValue("block-dim", &block_dim_);
+  if (cfl->GetValue("power-matrix", &power_filename)) {
+    ok = ok && (cfl->GetValue("offset-matrix", &offset_filename));
+    Init(power_filename, offset_filename);
+  } else {
+    BaseFloat power_stddev = 0.0, power_mean = 0.05,
+      offset_stddev = 0.0, offset_mean = 0.01;
+    cfl->GetValue("power-stddev", &power_stddev);
+    cfl->GetValue("power-mean", &power_mean);
+
+    cfl->GetValue("offset-stddev", &offset_stddev);
+    cfl->GetValue("offset-mean", &offset_mean);
+    Init(dim, power_stddev, power_mean, offset_stddev, offset_mean);
+  }
+  if (cfl->HasUnusedValues())
+    KALDI_ERR << "Could not process these elements in initializer: "
+              << cfl->UnusedValues();
+  if (!ok)
+    KALDI_ERR << "Bad initializer " << cfl->WholeLine();
+}
+
+void PowerComponent::Init(std::string power_filename,
+                          std::string offset_filename) {
+  CuVector<BaseFloat> power, offset;
+  ReadKaldiObject(power_filename, &power);
+  ReadKaldiObject(offset_filename, &offset);
+  int32 num_blocks = power.Dim();
+  dim_ = num_blocks * block_dim_;
+  KALDI_ASSERT(power.Dim() == offset.Dim());
+  power_.Resize(num_blocks);
+  offset_.Resize(num_blocks);
+  power_.CopyFromVec(power);
+  offset_.CopyFromVec(offset);
+}
+
+void PowerComponent::Init(int32 dim, BaseFloat power_stddev, BaseFloat power_mean,
+                          BaseFloat offset_stddev, BaseFloat offset_mean) {
+  dim_ = dim;
+  KALDI_ASSERT(dim_ % block_dim_ == 0);
+  int32 block_dim = dim_ / block_dim_;
+  offset_.Resize(block_dim);
+  power_.Resize(block_dim);
+  offset_.SetRandn();
+  offset_.Scale(offset_stddev);
+  offset_.Add(offset_mean);
+  power_.SetRandn();
+  power_.Scale(power_stddev);
+  power_.Add(power_mean);
+}
+
+void* PowerComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
+                                const CuMatrixBase<BaseFloat> &in,
+                                CuMatrixBase<BaseFloat> *out) const{
+  KALDI_ASSERT(dim_ % block_dim_ == 0);
+  int32 num_blocks = dim_ / block_dim_;
+  CuMatrix<BaseFloat> powered_in(in);
+  CuVector<BaseFloat> powered_offset(dim_),
+    unfolded_offset(dim_);
+  for (int32 i = 0; i < num_blocks; i++)
+    unfolded_offset.Range(i * block_dim_, block_dim_).Set(offset_(i));
+
+  powered_in.AddVecToRows(1.0, unfolded_offset);
+  powered_in.ApplyPow(2.0); // first compute (x+offset)^2 and apply floor
+                            // to deal with almost-zeros values.
+  powered_in.ApplyFloor(1.0e-5);
+  for (int32 i = 0; i < num_blocks; i++) {
+    int32 start_ind = i * block_dim_;
+    CuSubMatrix<BaseFloat> in_vec = powered_in.ColRange(start_ind, block_dim_);
+    in_vec.ApplyPow(power_(i));
+    if (offset_(i) != 0.0)
+      powered_offset.Range(start_ind, block_dim_).Set(std::pow((offset_(i) * offset_(i)), power_(i)) * -1.0);
+  }
+  powered_in.AddVecToRows(1.0, powered_offset);
+  out->CopyFromMat(powered_in);
+  return NULL;
+}
+
+void PowerComponent::Backprop(const std::string &debug_info,
+                              const ComponentPrecomputedIndexes *indexes,
+                              const CuMatrixBase<BaseFloat> &in_value,
+                              const CuMatrixBase<BaseFloat> &, // out_value
+                              const CuMatrixBase<BaseFloat> &out_deriv,
+                              void *memo,
+                              Component *to_update_in,
+                              CuMatrixBase<BaseFloat> *in_deriv) const {
+  PowerComponent *to_update = dynamic_cast<PowerComponent*>(to_update_in);
+  int32 num_blocks = dim_ / block_dim_;
+  CuVector<BaseFloat> unfolded_offset(dim_);
+  if (in_deriv) {
+    // 2 * power_ * (floor((x+offset_)^2))^(power_-1)) * (x+offset_)
+    for (int32 i = 0; i < num_blocks; i++)
+      unfolded_offset.Range(i * block_dim_, block_dim_).Set(offset_(i));
+    in_deriv->CopyFromMat(in_value);
+    in_deriv->AddVecToRows(1.0, unfolded_offset); // (x+offset)
+    CuMatrix<BaseFloat> offset_in(*in_deriv);
+    in_deriv->ApplyPow(2.0);
+    in_deriv->ApplyFloor(1.0e-05); // first compute (x+offset_)^2 and apply 1e-20
+                                   // to deal with near-zeros elements for negative
+                                   // powers.
+    for (int32 i = 0; i < num_blocks; i++) {
+       int32 start_ind = i * block_dim_;
+       CuSubMatrix<BaseFloat> in_vec = in_deriv->ColRange(start_ind, block_dim_);
+       in_vec.ApplyPow(power_(i) - 1.0);
+       in_vec.Scale(2.0 * power_(i));
+    }
+    in_deriv->MulElements(offset_in);
+    in_deriv->MulElements(out_deriv);
+  }
+
+  if (to_update != NULL) {
+      to_update->Update(debug_info, in_value, out_deriv, power_, offset_);
+  }
+}
+
+void PowerComponent::Read(std::istream &is, bool binary) {
+  ReadUpdatableCommon(is, binary);  // read opening tag and learning rate.
+  ExpectOneOrTwoTokens(is, binary, "<PowerComponent>", "<Dim>");
+  ReadBasicType(is, binary, &dim_);
+  ExpectToken(is, binary, "<Power>");
+  power_.Read(is, binary);
+  ExpectToken(is, binary, "<Offset>");
+  offset_.Read(is, binary);
+  std::string tok;
+  ReadToken(is, binary, &tok);
+  if (tok == "<BlockDim>") {
+    ReadBasicType(is, binary, &block_dim_);
+    ReadToken(is, binary, &tok);
+  }
+  KALDI_ASSERT(tok == "</PowerComponent>");
+}
+
+void PowerComponent::Write(std::ostream &os, bool binary) const {
+  WriteUpdatableCommon(os, binary);  // Write opening tag and learning rate
+  WriteToken(os, binary, "<PowerComponent>");
+  WriteToken(os, binary, "<Dim>");
+  WriteBasicType(os, binary, dim_);
+  WriteToken(os, binary, "<Power>");
+  power_.Write(os, binary);
+  WriteToken(os, binary, "<Offset>");
+  offset_.Write(os, binary);
+  WriteToken(os, binary, "<BlockDim>");
+  WriteBasicType(os, binary, block_dim_);
+  WriteToken(os, binary, "</PowerComponent>");
+}
+
+
+PowerComponent::PowerComponent(): dim_(0), block_dim_(1) {}
+
+PowerComponent::PowerComponent(const PowerComponent &other):
+    UpdatableComponent(other),
+    dim_(other.dim_),
+    block_dim_(other.block_dim_),
+    power_(other.power_),
+    offset_(other.offset_) {}
+
+
+Component* PowerComponent::Copy() const {
+  PowerComponent *ans = new PowerComponent(*this);
+  return ans;
+}
+
+void PowerComponent::Update(const std::string &debug_info,
+                            const CuMatrixBase<BaseFloat> &in_value,
+                            const CuMatrixBase<BaseFloat> &out_deriv,
+                            const CuVectorBase<BaseFloat> &power,
+                            const CuVectorBase<BaseFloat> &offset) {
+  //
+
+  CuMatrix<BaseFloat> power_update(in_value);
+  CuVector<BaseFloat> power_update_t2(dim_),
+    offset_update_t2(dim_),
+    unfolded_offset(dim_);
+  int32 num_blocks = dim_ / block_dim_;
+  for (int32 i = 0; i < num_blocks; i++)
+    unfolded_offset.Range(i * block_dim_, block_dim_).Set(offset(i));
+
+  power_update.AddVecToRows(1.0, unfolded_offset); // (x+offset_)
+  CuMatrix<BaseFloat> offset_in(power_update);
+  power_update.ApplyPow(2.0);
+  power_update.ApplyFloor(1.0e-05); // floor((x+offset)^2)
+
+  CuMatrix<BaseFloat> offset_update(power_update),
+    power_update_log(power_update);
+  power_update_log.ApplyLog(); // log[(x+offset)^2]
+
+  for (int32 i = 0; i < num_blocks; i++) {
+    int32 start_ind = i * block_dim_;
+    CuSubMatrix<BaseFloat> offset_vec = offset_update.ColRange(start_ind, block_dim_),
+      power_vec = power_update.ColRange(start_ind, block_dim_);
+    offset_vec.ApplyPow(power(i) - 1.0); // (x+offset)^(2p-2)
+
+    if (offset(i) != 0.0) {
+      offset_update_t2.Range(start_ind, block_dim_).Set(-2.0 * power(i) *
+                             offset(i) * std::pow((offset(i) * offset(i)),
+                             (power(i) - 1.0))); // -2.0 * p * offset^(2p-2) * offset
+
+      power_update_t2.Range(start_ind, block_dim_).Set(-1.0 * Log(offset(i) *
+                            offset(i)) * std::pow((offset(i) *
+                            offset(i)), power(i))); // log(offset^2) * offset^2p
+    }
+
+    offset_vec.Scale(2.0 * power(i)); // 2*p*floor((x+offset)^2)^(p-1)
+    power_vec.ApplyPow(power(i)); // floor((x+offset)^2)^p
+  }
+
+  offset_update.MulElements(offset_in); // floor((x+offset)^2)^(p-1) * (x+offset)
+  offset_update.AddVecToRows(1.0, offset_update_t2); // (1) - 2p floor((offset)^2)^(p-1) * offset
+
+  power_update.MulElements(power_update_log); // log(floor((x+offset)^2)) * floor((x+offset)^2)^p
+  power_update.AddVecToRows(1.0, power_update_t2); // (1) - log(offset^2) * offset^2p
+
+  power_update.MulElements(out_deriv);
+  offset_update.MulElements(out_deriv);
+
+  if (block_dim_ > 1) {
+    // sum updated over row of minibatch
+    CuVector<BaseFloat> unfolded_power_update_vec(dim_),
+      unfolded_offset_update_vec(dim_);
+    unfolded_power_update_vec.AddRowSumMat(1.0, power_update);
+    unfolded_offset_update_vec.AddRowSumMat(1.0, offset_update);
+    for (int32 i = 0; i < num_blocks; i++) {
+      int32 start_ind = i * block_dim_;
+      power_(i) += learning_rate_ * unfolded_power_update_vec.Range(start_ind, block_dim_).Sum();
+      offset_(i) += learning_rate_ * unfolded_offset_update_vec.Range(start_ind, block_dim_).Sum();
+    }
+  } else {
+    power_.AddRowSumMat(learning_rate_, power_update);
+    offset_.AddRowSumMat(learning_rate_, offset_update);
+  }
+}
+
 std::string LogComponent::Info() const {
   std::stringstream stream;
   stream << NonlinearComponent::Info()
-         << ", log-floor=" << log_floor_;
+         << ", log-floor=" << log_floor_
+         << ", additive-offset=" << additive_offset_;
   return stream.str();
 }
 
 void LogComponent::InitFromConfig(ConfigLine *cfl) {
   cfl->GetValue("log-floor", &log_floor_);
+  cfl->GetValue("additive-offset", &additive_offset_);
   NonlinearComponent::InitFromConfig(cfl);
 }
 
 void* LogComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
                               const CuMatrixBase<BaseFloat> &in,
                               CuMatrixBase<BaseFloat> *out) const {
-  // Apllies log function (x >= epsi ? log(x) : log(epsi)).
   out->CopyFromMat(in);
-  out->ApplyFloor(log_floor_);
-  out->ApplyLog();
+  if (additive_offset_) {
+    // Apply log(abs(x)+epsi)
+    out->ApplyPowAbs(1.0);
+    out->Add(log_floor_);
+    out->ApplyLog();
+  } else {
+    // Apply log function (x >= epsi ? log(x) : log(epsi)).
+    out->ApplyFloor(log_floor_);
+    out->ApplyLog();
+  }
   return NULL;
 }
 
@@ -4317,14 +4675,25 @@ void LogComponent::Backprop(const std::string &debug_info,
     CuMatrix<BaseFloat> divided_in_value(in_value), floored_in_value(in_value);
     divided_in_value.Set(1.0);
     floored_in_value.CopyFromMat(in_value);
-    floored_in_value.ApplyFloor(log_floor_); // (x > epsi ? x : epsi)
-
-    divided_in_value.DivElements(floored_in_value); // (x > epsi ? 1/x : 1/epsi)
-    in_deriv->CopyFromMat(in_value);
-    in_deriv->Add(-1.0 * log_floor_); // (x - epsi)
-    in_deriv->ApplyHeaviside(); // (x > epsi ? 1 : 0)
-    in_deriv->MulElements(divided_in_value); // (dy/dx: x  > epsi ? 1/x : 0)
-    in_deriv->MulElements(out_deriv);   // dF/dx = dF/dy * dy/dx
+    if (additive_offset_) {
+      in_deriv->CopyFromMat(in_value);
+      in_deriv->ApplyHeaviside(); // (x > 0 ? 1 : 0)
+      in_deriv->Scale(2.0);
+      in_deriv->Add(-1.0); // (x > 0 ? 1 : -1)
+      floored_in_value.ApplyPowAbs(1.0);
+      floored_in_value.Add(log_floor_); // (abs(x) + epsi)
+      divided_in_value.DivElements(floored_in_value); // 1 / (abs(x) + epsi)
+      in_deriv->MulElements(divided_in_value); // (dy/dx: x > 0 : 1/(abs(x) + epsi), -1/(abs(x) + epsi))
+      in_deriv->MulElements(out_deriv);   // dF/dx = dF/dy * dy/dx
+    } else {
+      floored_in_value.ApplyFloor(log_floor_); // (x > epsi ? x : epsi)
+      divided_in_value.DivElements(floored_in_value); // (x > epsi ? 1/x : 1/epsi)
+      in_deriv->CopyFromMat(in_value);
+      in_deriv->Add(-1.0 * log_floor_); // (x - epsi)
+      in_deriv->ApplyHeaviside(); // (x > epsi ? 1 : 0)
+      in_deriv->MulElements(divided_in_value); // (dy/dx: x  > epsi ? 1/x : 0)
+      in_deriv->MulElements(out_deriv);   // dF/dx = dF/dy * dy/dx
+    }
   }
 }
 
@@ -4361,6 +4730,12 @@ void LogComponent::Read(std::istream &is, bool binary) {
     ReadBasicType(is, binary, &log_floor_);
     ReadToken(is, binary, &token);
   }
+
+  if (token == "<AdditiveOffset>") {
+    ReadBasicType(is, binary, &additive_offset_);
+    ReadToken(is, binary, &token);
+  }
+
   if (token != ostr_end.str()) {
     KALDI_ERR << "Expected token " << ostr_end.str()
               << ", got " << token;
@@ -4402,6 +4777,9 @@ void LogComponent::Write(std::ostream &os, bool binary) const {
   }
   WriteToken(os, binary, "<LogFloor>");
   WriteBasicType(os, binary, log_floor_);
+
+  WriteToken(os, binary, "<AdditiveOffset>");
+  WriteBasicType(os, binary, additive_offset_);
   WriteToken(os, binary, ostr_end.str());
 }
 
@@ -5170,6 +5548,21 @@ void CompositeComponent::SetUnderlyingLearningRate(BaseFloat lrate) {
   }
 }
 
+void CompositeComponent::SetUnderlyingLearningRateFactor(BaseFloat lrate_factor) {
+  //KALDI_ASSERT(this->IsUpdatable());  // or should not be called.
+  UpdatableComponent::SetUnderlyingLearningRateFactor(lrate_factor);
+
+  // apply any learning-rate-factor that's set at this level (ill-advised, but
+  // we'll do it.)
+  for (size_t i = 0; i < components_.size(); i++) {
+    if (components_[i]->Properties() & kUpdatableComponent) {
+      UpdatableComponent *uc =
+          dynamic_cast<UpdatableComponent*>(components_[i]);
+      uc->SetUnderlyingLearningRateFactor(lrate_factor);
+    }
+  }
+}
+
 void CompositeComponent::SetActualLearningRate(BaseFloat lrate) {
   KALDI_ASSERT(this->IsUpdatable());  // or should not be called.
   UpdatableComponent::SetActualLearningRate(lrate);
@@ -5262,6 +5655,18 @@ BaseFloat CompositeComponent::DotProduct(
     }
   }
   return ans;
+}
+
+/// virtual
+void CompositeComponent::FreezeNaturalGradient(bool freeze) {
+  for (size_t i = 0; i < components_.size(); i++) {
+    if (components_[i]->Properties() & kUpdatableComponent) {
+      UpdatableComponent *uc =
+          dynamic_cast<UpdatableComponent*>(components_[i]);
+      KALDI_ASSERT(uc != NULL);
+      uc->FreezeNaturalGradient(freeze);
+    }
+  }
 }
 
 // virtual
@@ -5657,6 +6062,10 @@ void LstmNonlinearityComponent::InitNaturalGradient() {
   preconditioner_.SetNumSamplesHistory(1000.0);
 }
 
+/// virtual
+void LstmNonlinearityComponent::FreezeNaturalGradient(bool freeze) {
+  preconditioner_.Freeze(freeze);
+}
 
 void LstmNonlinearityComponent::InitFromConfig(ConfigLine *cfl) {
   InitLearningRatesFromConfig(cfl);
@@ -5711,8 +6120,8 @@ void BatchNormComponent::ComputeDerived() {
   if (count_ == 0.0) {
     KALDI_WARN << "Test-mode is set but there is no data count.  "
         "Creating random counts.  This only makes sense "
-        "in unit-tests.  If you see this in real life, "
-        "something is very wrong.";
+        "in unit-tests (or compute_prob_*.0.log).  If you see this "
+        "elsewhere, something is very wrong.";
     count_ = 1.0;
     stats_sum_.SetRandn();
     stats_sumsq_.SetRandn();
@@ -5761,7 +6170,8 @@ std::string BatchNormComponent::Info() const {
   std::ostringstream stream;
   stream << Type() << ", dim=" << dim_ << ", block-dim=" << block_dim_
          << ", epsilon=" << epsilon_ << ", target-rms=" << target_rms_
-         << ", count=" << count_;
+         << ", count=" << count_
+         << ", test-mode=" << (test_mode_ ? "true" : "false");
   if (count_ > 0) {
     Vector<BaseFloat> mean(stats_sum_), var(stats_sumsq_);
     mean.Scale(1.0 / count_);

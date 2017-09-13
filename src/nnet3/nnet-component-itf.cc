@@ -169,6 +169,8 @@ Component* Component::NewComponentOfType(const std::string &component_type) {
     ans = new ShiftInputComponent();
   } else if (component_type == "LogComponent") {
     ans = new LogComponent();
+  } else if (component_type == "PowerComponent") {
+    ans = new PowerComponent();
   }
   if (ans != NULL) {
     KALDI_ASSERT(component_type == ans->Type());

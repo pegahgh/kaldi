@@ -86,18 +86,25 @@ class PnormComponent: public Component {
 // Typically this component used during training but not in test time.
 // The idea is described under the name Dropout, in the paper
 // "Dropout: A Simple Way to Prevent Neural Networks from Overfitting".
+// If block_dropout_size is nonzero, then the dropout is applied per block
+// of size block_dropout_size and the blocks are randomely zero or one.
 class DropoutComponent : public RandomComponent {
  public:
   void Init(int32 dim, BaseFloat dropout_proportion = 0.0,
-            bool dropout_per_frame = false);
+            bool dropout_per_frame = false,
+            int32 block_dropout_size = 1);
 
   DropoutComponent(int32 dim, BaseFloat dropout = 0.0,
-                   bool dropout_per_frame = false) {
-    Init(dim, dropout, dropout_per_frame);
+                   bool dropout_per_frame = false,
+                   int32 block_dropout_size = 1) {
+    Init(dim, dropout, dropout_per_frame, block_dropout_size);
   }
 
   DropoutComponent(): dim_(0), dropout_proportion_(0.0),
-                      dropout_per_frame_(false) { }
+                      dropout_per_frame_(false),
+                      block_dropout_size_(1) { }
+
+  explicit DropoutComponent(const DropoutComponent &other);
 
   virtual int32 Properties() const {
     return kLinearInInput|kBackpropInPlace|kSimpleComponent|kBackpropNeedsInput|
@@ -127,21 +134,22 @@ class DropoutComponent : public RandomComponent {
                         void *memo,
                         Component *to_update,
                         CuMatrixBase<BaseFloat> *in_deriv) const;
-  virtual Component* Copy() const { return new DropoutComponent(dim_,
-                                               dropout_proportion_,
-                                               dropout_per_frame_); }
+  virtual Component* Copy() const;
+
   virtual std::string Info() const;
 
   void SetDropoutProportion(BaseFloat dropout_proportion) {
     dropout_proportion_ = dropout_proportion;
   }
 
+  BaseFloat DropoutProportion() const { return dropout_proportion_; }
  private:
   int32 dim_;
   /// dropout-proportion is the proportion that is dropped out,
   /// e.g. if 0.1, we set 10% to zero value.
   BaseFloat dropout_proportion_;
   bool dropout_per_frame_;
+  int32 block_dropout_size_;
 };
 
 class ElementwiseProductComponent: public Component {
@@ -429,6 +437,7 @@ class FixedAffineComponent;
 class FixedScaleComponent;
 class PerElementScaleComponent;
 class PerElementOffsetComponent;
+class PowerComponent;
 
 // Affine means a linear function plus an offset.
 // Note: although this class can be instantiated, it also
@@ -481,9 +490,8 @@ class AffineComponent: public UpdatableComponent {
 
   // Some functions that are specific to this class.
 
-  // This new function is used when mixing up:
-  virtual void SetParams(const VectorBase<BaseFloat> &bias,
-                         const MatrixBase<BaseFloat> &linear);
+  virtual void SetParams(const CuVectorBase<BaseFloat> &bias,
+                         const CuMatrixBase<BaseFloat> &linear);
   const CuVector<BaseFloat> &BiasParams() const { return bias_params_; }
   const CuMatrix<BaseFloat> &LinearParams() const { return linear_params_; }
   explicit AffineComponent(const AffineComponent &other);
@@ -498,15 +506,6 @@ class AffineComponent: public UpdatableComponent {
   // This function resizes the dimensions of the component, setting the
   // parameters to zero, while leaving any other configuration values the same.
   virtual void Resize(int32 input_dim, int32 output_dim);
-
-  // The following functions are used for collapsing multiple layers
-  // together.  They return a pointer to a new Component equivalent to
-  // the sequence of two components.  We haven't implemented this for
-  // FixedLinearComponent yet.
-  Component *CollapseWithNext(const AffineComponent &next) const ;
-  Component *CollapseWithNext(const FixedAffineComponent &next) const;
-  Component *CollapseWithNext(const FixedScaleComponent &next) const;
-  Component *CollapseWithPrevious(const FixedAffineComponent &prev) const;
 
  protected:
   friend class NaturalGradientAffineComponent;
@@ -712,7 +711,8 @@ class SoftmaxComponent: public NonlinearComponent {
   SoftmaxComponent() { }
   virtual std::string Type() const { return "SoftmaxComponent"; }
   virtual int32 Properties() const {
-    return kSimpleComponent|kBackpropNeedsOutput|kStoresStats;
+    return kSimpleComponent|kPropagateInPlace|kBackpropInPlace|
+        kBackpropNeedsOutput|kStoresStats;
   }
   virtual void* Propagate(const ComponentPrecomputedIndexes *indexes,
                          const CuMatrixBase<BaseFloat> &in,
@@ -852,6 +852,7 @@ class NaturalGradientAffineComponent: public AffineComponent {
   virtual Component* Copy() const;
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
+  virtual void FreezeNaturalGradient(bool freeze);
   // copy constructor
   explicit NaturalGradientAffineComponent(
       const NaturalGradientAffineComponent &other);
@@ -924,8 +925,8 @@ class FixedAffineComponent: public Component {
   virtual void Read(std::istream &is, bool binary);
   virtual void Write(std::ostream &os, bool binary) const;
 
-  // Function to provide access to linear_params_.
   const CuMatrix<BaseFloat> &LinearParams() const { return linear_params_; }
+  const CuVector<BaseFloat> &BiasParams() const { return bias_params_; }
  protected:
   friend class AffineComponent;
   CuMatrix<BaseFloat> linear_params_;
@@ -1023,8 +1024,8 @@ class FixedScaleComponent: public Component {
   virtual void Read(std::istream &is, bool binary);
   virtual void Write(std::ostream &os, bool binary) const;
 
+  const CuVector<BaseFloat> &Scales() const { return scales_; }
  protected:
-  friend class AffineComponent;  // necessary for collapse
   CuVector<BaseFloat> scales_;
   KALDI_DISALLOW_COPY_AND_ASSIGN(FixedScaleComponent);
 };
@@ -1397,7 +1398,6 @@ class PerElementScaleComponent: public UpdatableComponent {
   void Init(std::string vector_filename);
 
  protected:
-  friend class AffineComponent;  // necessary for collapse
   // This function Update() is for extensibility; child classes may override
   // this, e.g. for natural gradient update.
   virtual void Update(
@@ -1577,6 +1577,7 @@ class NaturalGradientPerElementScaleComponent: public PerElementScaleComponent {
 
   virtual void Read(std::istream &is, bool binary);
   virtual void Write(std::ostream &os, bool binary) const;
+  virtual void FreezeNaturalGradient(bool freeze);
 
   virtual Component* Copy() const;
 
@@ -1612,6 +1613,8 @@ class NaturalGradientPerElementScaleComponent: public PerElementScaleComponent {
 };
 
 /**
+ * WARNING, this component is deprecated in favor of
+ *  TimeHeightConvolutionComponent, and will be deleted.
  * ConvolutionalComponent implements 2d-convolution.
  * It uses 3D filters on 3D inputs, but the 3D filters hop only over
  * 2 dimensions as it has same size as the input along the 3rd dimension.
@@ -1833,11 +1836,11 @@ class ConvolutionComponent: public UpdatableComponent {
   // The discrete sine transform matrix used to transform time-domain filter
   // parameters to frequency domain.
 
+  bool is_gradient_;
+
   BaseFloat l1_regularizer_;
   // If nonzero, the l1-regularization is applied on convolution filters in
   // frequency domain.
-
-  bool is_gradient_;
 
   void InputToInputPatches(const CuMatrixBase<BaseFloat>& in,
                            CuMatrix<BaseFloat> *patches) const;
@@ -1967,6 +1970,7 @@ class LstmNonlinearityComponent: public UpdatableComponent {
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
   virtual void UnVectorize(const VectorBase<BaseFloat> &params);
   virtual void ZeroStats();
+  virtual void FreezeNaturalGradient(bool freeze);
 
   // Some functions that are specific to this class:
   explicit LstmNonlinearityComponent(
@@ -2046,19 +2050,29 @@ class LstmNonlinearityComponent: public UpdatableComponent {
  * and we can shift the input e.g. shift the input by 20% of original frame-length.
  * max_shift_ is the max shift used to shift the input(0 <= max_shift_ <= 1, the default is 0.5.)
  */
-class ShiftInputComponent: public Component {
+class ShiftInputComponent: public RandomComponent {
  public:
-  void Init(int32 input_dim, int32 output_dim, BaseFloat max_shift, BaseFloat rand_vol_var = 0.0);
-  explicit ShiftInputComponent(int32 input_dim, int32 output_dim, BaseFloat max_shift, BaseFloat rand_vol_var = 0.0) { Init(input_dim, output_dim, max_shift, rand_vol_var); }
-  ShiftInputComponent(): input_dim_(0), output_dim_(0), max_shift_(1.0), rand_vol_var_(0.0) { }
+  void Init(int32 input_dim, int32 output_dim, BaseFloat max_shift,
+    BaseFloat rand_vol_var = 0.0);
+
+  explicit ShiftInputComponent(const ShiftInputComponent &other);
+
+  explicit ShiftInputComponent(int32 input_dim, int32 output_dim,
+                               BaseFloat max_shift,
+                               BaseFloat rand_vol_var = 0.0) {
+      Init(input_dim, output_dim, max_shift, rand_vol_var); }
+  ShiftInputComponent(): input_dim_(0), output_dim_(0), max_shift_(1.0),
+    rand_vol_var_(0.0), shift_per_frame_(false) { }
+
   virtual std::string Type() const { return "ShiftInputComponent"; }
   virtual std::string Info() const;
   virtual void InitFromConfig(ConfigLine *cfl);
-  void SetShiftAndVolume(BaseFloat shift, BaseFloat vol_var) { max_shift_ = shift; rand_vol_var_ = vol_var; }
+  void SetShiftAndVolume(BaseFloat shift, BaseFloat vol_var) { max_shift_ = shift;
+    rand_vol_var_ = vol_var; }
   virtual int32 InputDim() const { return input_dim_; }
   virtual int32 OutputDim() const { return output_dim_; }
   virtual int32 Properties() const {
-    return kSimpleComponent;
+    return kSimpleComponent|kRandomComponent;
   }
   virtual void* Propagate(const ComponentPrecomputedIndexes *indexes,
                          const CuMatrixBase<BaseFloat> &in,
@@ -2072,7 +2086,8 @@ class ShiftInputComponent: public Component {
                         void *memo,
                         Component *to_update,
                         CuMatrixBase<BaseFloat> *in_deriv) const;
-  virtual Component* Copy() const { return new ShiftInputComponent(input_dim_, output_dim_, max_shift_, rand_vol_var_); }
+
+  virtual Component* Copy() const;
 
   virtual void Read(std::istream &is, bool binary); // This Read function
   // requires that the Component has the correct type.
@@ -2085,6 +2100,72 @@ class ShiftInputComponent: public Component {
   BaseFloat max_shift_; // max shift is the max shift used to shift the input.
                         // max_shift_ should be between 0 and 1.
   BaseFloat rand_vol_var_; // The variance used to generate random volume perturbation value.
+  bool shift_per_frame_;  // If true, different random shift is applied per frame of input.
+};
+
+// The PowerComponent is ((x_i+delta_i)^2)^p_i - (delta_i^2)^p_i, and the delta and P are
+// per-dimension trainable parameters.
+// The power and offset are shared acoss blocks with block_dim size.
+class PowerComponent: public UpdatableComponent {
+ public:
+  virtual int32 InputDim() const { return dim_; }
+  virtual int32 OutputDim() const { return dim_; }
+
+  virtual std::string Info() const;
+  virtual void InitFromConfig(ConfigLine *cfl);
+
+  virtual std::string Type() const { return "PowerComponent"; }
+  virtual int32 Properties() const {
+    return kSimpleComponent|kUpdatableComponent|
+      kBackpropNeedsInput;
+  }
+
+  virtual void* Propagate(const ComponentPrecomputedIndexes *indexes,
+                         const CuMatrixBase<BaseFloat> &in,
+                         CuMatrixBase<BaseFloat> *out) const;
+
+  virtual void Backprop(const std::string &debug_info,
+                        const ComponentPrecomputedIndexes *indexes,
+                        const CuMatrixBase<BaseFloat> &in_value,
+                        const CuMatrixBase<BaseFloat> &, // out_value
+                        const CuMatrixBase<BaseFloat> &out_deriv,
+                        void *memo,
+                        Component *to_update,
+                        CuMatrixBase<BaseFloat> *in_deriv) const;
+
+  virtual void Read(std::istream &is, bool binary);
+  virtual void Write(std::ostream &os, bool binary) const;
+
+  virtual Component* Copy() const;
+
+  // Some functions from base-class UpdatableComponent.
+  virtual void Scale(BaseFloat scale);
+  virtual void Add(BaseFloat alpha, const Component &other);
+  virtual void PerturbParams(BaseFloat stddev);
+  virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
+  virtual int32 NumParameters() const;
+  virtual void Vectorize(VectorBase<BaseFloat> *params) const;
+  virtual void UnVectorize(const VectorBase<BaseFloat> &params);
+
+  // PowerComponent-specific functions.
+  void Init(std::string power_filename, std::string offset_filename);
+  void Init(int32 dim, BaseFloat power_stddev, BaseFloat power_mean,
+            BaseFloat offset_stddev, BaseFloat offset_mean);
+  explicit PowerComponent();
+  explicit PowerComponent(const PowerComponent &other);
+ protected:
+  int32 dim_;
+  int32 block_dim_;
+  CuVector<BaseFloat> power_;
+  CuVector<BaseFloat> offset_;
+
+  void Update(const std::string &debug_info,
+              const CuMatrixBase<BaseFloat> &in_value,
+              const CuMatrixBase<BaseFloat> &out_deriv,
+              const CuVectorBase<BaseFloat> &power,
+              const CuVectorBase<BaseFloat> &offset);
+
+  const PowerComponent &operator = (const PowerComponent &other);
 };
 
 // The LogComponent outputs the log of input values as y = Log(max(x, epsi))
@@ -2092,8 +2173,9 @@ class LogComponent: public NonlinearComponent {
  public:
   //explicit LogComponent(int32 dim): dim_(dim) { }
   explicit LogComponent(const LogComponent &other):
-    NonlinearComponent(other), log_floor_(other.log_floor_) { }
-  LogComponent(): log_floor_(1e-20) { }
+    NonlinearComponent(other), log_floor_(other.log_floor_),
+    additive_offset_(other.additive_offset_) {}
+  LogComponent(): log_floor_(1e-10), additive_offset_(false) { }
   virtual std::string Type() const { return "LogComponent"; }
   virtual int32 Properties() const {
     return kSimpleComponent|kBackpropNeedsInput|kStoresStats;
@@ -2124,11 +2206,15 @@ class LogComponent: public NonlinearComponent {
  private:
   LogComponent &operator = (const LogComponent &other); // Disallow.
   BaseFloat log_floor_;
+  bool additive_offset_; // If true, log is computed using abs(x) + log_floor_
+                         // otherwise it is computed as log(max(x,log_floor_))
 };
 
 
 
 /*
+ * WARNING, this component is deprecated as it's not compatible with
+ *   TimeHeightConvolutionComponent, and it will eventually be deleted.
  * MaxPoolingComponent :
  * Maxpooling component was firstly used in ConvNet for selecting an
  * representative activation in an area. It inspired Maxout nonlinearity.
@@ -2325,6 +2411,12 @@ class BatchNormComponent: public Component {
   virtual void StoreStats(const CuMatrixBase<BaseFloat> &in_value,
                           const CuMatrixBase<BaseFloat> &out_value,
                           void *memo);
+
+  // Members specific to this component type.
+  // Note: the offset and scale will only be nonempty in 'test mode'.
+  const CuVector<BaseFloat> &Offset() const { return offset_; }
+  const CuVector<BaseFloat> &Scale() const { return scale_; }
+
  private:
 
   struct Memo {
@@ -2474,6 +2566,7 @@ class CompositeComponent: public UpdatableComponent {
 
   // Some functions from base-class UpdatableComponent.
   virtual void SetUnderlyingLearningRate(BaseFloat lrate);
+  virtual void SetUnderlyingLearningRateFactor(BaseFloat lrate_factor);
   virtual void SetActualLearningRate(BaseFloat lrate);
   virtual void SetAsGradient();
   virtual void Scale(BaseFloat scale);
@@ -2483,6 +2576,7 @@ class CompositeComponent: public UpdatableComponent {
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
   virtual void UnVectorize(const VectorBase<BaseFloat> &params);
+  virtual void FreezeNaturalGradient(bool freeze);
 
   // note: we dont implement the StoreStats function as it would be quite
   // expensive; instead, by default we call StoreStats() for any components that

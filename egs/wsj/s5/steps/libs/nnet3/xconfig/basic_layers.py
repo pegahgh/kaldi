@@ -629,7 +629,8 @@ class XconfigBasicLayer(XconfigLayerBase):
         # combinations you want to use, to this list.
         assert first_token in [ 'relu-layer', 'relu-renorm-layer', 'sigmoid-layer',
                                 'tanh-layer', 'relu-batchnorm-layer', 'relu-dropout-layer',
-                                'relu-batchnorm-dropout-layer' ]
+                                'relu-batchnorm-dropout-layer',
+                                'relu-power-batchnorm-layer']
         XconfigLayerBase.__init__(self, first_token, key_to_value, prev_names)
 
     def set_default_configs(self):
@@ -777,6 +778,13 @@ class XconfigBasicLayer(XconfigLayerBase):
                            'dim={2} dropout-proportion={3}'.format(
                                self.name, nonlinearity, output_dim,
                                self.config['dropout-proportion']))
+            elif nonlinearity == 'power':
+                line = ('component name={0}.{1} type=PowerComponent '
+                        'dim={2} block-dim=1 max-change={3} '
+                        'offset-mean=0.01 offset-stddev=0.0 '
+                        'power-mean=0.5 power-stddev=0.0 {4}'.format(
+                            self.name, nonlinearity, output_dim,
+                            max_change, learning_rate_option))
 
             else:
                 raise RuntimeError("Unknown nonlinearity type: {0}"

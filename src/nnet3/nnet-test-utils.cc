@@ -1354,7 +1354,7 @@ void ComputeExampleComputationRequestSimple(
 static void GenerateRandomComponentConfig(std::string *component_type,
                                           std::string *config) {
 
-  int32 n = RandInt(0, 33);
+  int32 n = RandInt(0, 34);
   BaseFloat learning_rate = 0.001 * RandInt(1, 100);
 
   std::ostringstream os;
@@ -1679,7 +1679,21 @@ static void GenerateRandomComponentConfig(std::string *component_type,
     }
     case 33: {
       *component_type = "LogComponent";
-      os << " dim=" << RandInt(1, 50);
+      bool additive_offset = (RandInt(0, 1) == 0);
+      os << "dim=" << RandInt(1, 50)
+         << " additive-offset=" << (additive_offset ? "true" : "false");
+      break;
+    }
+    case 34: {
+      *component_type = "PowerComponent";
+      int32 block_dim = RandInt(1, 10),
+        num_blocks = RandInt(20, 30);
+      os << "dim=" << block_dim * num_blocks
+         << " power-mean=" << 0.2 + 0.1 * RandInt(1, 10)
+         << " power-stddev=" << 0.001 * RandInt(1, 10)
+         << " offset-mean=" << 0.01 * RandInt(1, 10)
+         << " offset-stddev=" << 0.001 * RandInt(1, 10)
+         << " block-dim=" << block_dim;
       break;
     }
     default:

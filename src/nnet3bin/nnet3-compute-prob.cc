@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     typedef kaldi::int64 int64;
 
     const char *usage =
-        "Computes and prints to in logging messages the average log-prob per frame of\n"
+        "Computes and prints in logging messages the average log-prob per frame of\n"
         "the given data with an nnet3 neural net.  The input of this is the output of\n"
         "e.g. nnet3-get-egs | nnet3-merge-egs.\n"
         "\n"
@@ -39,7 +39,8 @@ int main(int argc, char *argv[]) {
         "e.g.: nnet3-compute-prob 0.raw ark:valid.egs\n";
 
 
-    bool batchnorm_test_mode = true, dropout_test_mode = true;
+    bool batchnorm_test_mode = true, dropout_test_mode = true,
+      shift_input_test_mode = true;
 
     // This program doesn't support using a GPU, because these probabilities are
     // used for diagnostics, and you can just compute them with a small enough
@@ -54,6 +55,8 @@ int main(int argc, char *argv[]) {
     po.Register("dropout-test-mode", &dropout_test_mode,
                 "If true, set test-mode to true on any DropoutComponents and "
                 "DropoutMaskComponents.");
+    po.Register("shift-input-test-mode", &shift_input_test_mode,
+                "If true, set test-mode to true on any ShiftInputComponent.");
 
     opts.Register(&po);
 
@@ -75,6 +78,11 @@ int main(int argc, char *argv[]) {
 
     if (dropout_test_mode)
       SetDropoutTestMode(true, &nnet);
+
+    if (shift_input_test_mode)
+      SetShiftInputTestMode(true, &nnet);
+
+    CollapseModel(CollapseModelConfig(), &nnet);
 
     NnetComputeProb prob_computer(opts, nnet);
 

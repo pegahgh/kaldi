@@ -75,6 +75,12 @@ def get_args():
                         help="""Weight of regularization function which is the
                         l1-norm of the fft transform of convolution filters in
                         the network.""")
+    parser.add_argument("--chain.fft-feat-dim", type=int,
+                        dest='fft_feat_dim', default=0,
+                        help="""If nonzero, the cosine and sine transformation
+                        with dim fft_feat_dim and closest 2-power of that is
+                        generated as configs/{cos,sin}_transform.mat.
+                        """)
     parser.add_argument("--chain.xent-regularize", type=float,
                         dest='xent_regularize', default=0.0,
                         help="Weight of regularization function which is the "
@@ -396,16 +402,19 @@ def train(args, run_opts):
             args.dir, egs_dir, num_archives, run_opts,
             max_lda_jobs=args.max_lda_jobs,
             rand_prune=args.rand_prune)
-    if (args.l1_regularize != 0):
-        feat_dim = 250
-        num_fft_bins = 512
+    if (args.l1_regularize != 0) or (args.fft_feat_dim != 0):
+        feat_dim = args.fft_feat_dim
+        add_bias = True
+        #feat_dim=250
+        num_fft_bins = 2**(feat_dim-1).bit_length()
         common_lib.write_sin_cos_transform_matrix(feat_dim, num_fft_bins,
-            "{0}/configs/cos_transform".format(args.dir),
-            compute_cosine=True)
+            "{0}/configs/cos_transform.mat".format(args.dir),
+            compute_cosine=True, add_bias=add_bias)
         common_lib.write_sin_cos_transform_matrix(feat_dim, num_fft_bins,
-            "{0}/configs/sin_transform".format(args.dir),
-            compute_cosine=False)
-
+            "{0}/configs/sin_transform.mat".format(args.dir),
+            compute_cosine=False, add_bias=add_bias)
+        common_lib.write_negate_vector(num_fft_bins,
+            "{0}/configs/negate.vec".format(args.dir))
     if (args.stage <= -1):
         logger.info("Preparing the initial acoustic model.")
         chain_lib.prepare_initial_acoustic_model(args.dir, run_opts)
@@ -422,10 +431,15 @@ def train(args, run_opts):
     num_iters = ((num_archives_to_process * 2)
                  / (args.num_jobs_initial + args.num_jobs_final))
 
-    models_to_combine = common_train_lib.get_model_combine_iters(
-        num_iters, args.num_epochs,
-        num_archives_expanded, args.max_models_combine,
-        args.num_jobs_final)
+    # If do_final_combination is True, compute the set of models_to_combine.
+    # Otherwise, models_to_combine will be none.
+    if args.do_final_combination:
+        models_to_combine = common_train_lib.get_model_combine_iters(
+            num_iters, args.num_epochs,
+            num_archives_expanded, args.max_models_combine,
+            args.num_jobs_final)
+    else:
+        models_to_combine = None
 
     min_deriv_time = None
     max_deriv_time_relative = None
@@ -513,6 +527,8 @@ def train(args, run_opts):
                 shuffle_buffer_size=args.shuffle_buffer_size,
                 frame_subsampling_factor=args.frame_subsampling_factor,
                 run_opts=run_opts,
+                backstitch_training_scale=args.backstitch_training_scale,
+                backstitch_training_interval=args.backstitch_training_interval,
                 do_average=do_average)
 
             if args.cleanup:
@@ -537,18 +553,26 @@ def train(args, run_opts):
         num_archives_processed = num_archives_processed + current_num_jobs
 
     if args.stage <= num_iters:
-        logger.info("Doing final combination to produce final.mdl")
-        chain_lib.combine_models(
-            dir=args.dir, num_iters=num_iters,
-            models_to_combine=models_to_combine,
-            num_chunk_per_minibatch_str=args.num_chunk_per_minibatch,
-            egs_dir=egs_dir,
-            leaky_hmm_coefficient=args.leaky_hmm_coefficient,
-            l2_regularize=args.l2_regularize,
-            xent_regularize=args.xent_regularize,
-            run_opts=run_opts,
-            sum_to_one_penalty=args.combine_sum_to_one_penalty)
-
+        if args.do_final_combination:
+            logger.info("Doing final combination to produce final.mdl")
+            chain_lib.combine_models(
+                dir=args.dir, num_iters=num_iters,
+                models_to_combine=models_to_combine,
+                num_chunk_per_minibatch_str=args.num_chunk_per_minibatch,
+                egs_dir=egs_dir,
+                leaky_hmm_coefficient=args.leaky_hmm_coefficient,
+                l2_regularize=args.l2_regularize,
+                xent_regularize=args.xent_regularize,
+                run_opts=run_opts,
+                sum_to_one_penalty=args.combine_sum_to_one_penalty)
+        else:
+            logger.info("Copying the last-numbered model to final.mdl")
+            common_lib.force_symlink("{0}.mdl".format(num_iters),
+                                     "{0}/final.mdl".format(args.dir))
+            common_lib.force_symlink("compute_prob_valid.{iter}.log".format(
+                                         iter=num_iters-1),
+                                     "{dir}/log/compute_prob_valid.final.log".format(
+                                         dir=args.dir))
 
     if args.cleanup:
         logger.info("Cleaning up the experiment directory "
