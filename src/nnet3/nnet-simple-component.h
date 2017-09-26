@@ -49,7 +49,8 @@ class PnormComponent: public Component {
     Init(input_dim, output_dim);
   }
   virtual int32 Properties() const {
-    return kSimpleComponent|kLinearInInput|kBackpropNeedsInput|kBackpropNeedsOutput;
+    return kSimpleComponent|kLinearInInput|kBackpropNeedsInput|
+      kBackpropNeedsOutput|kBackpropNeedsInput;
   }
   PnormComponent(): input_dim_(0), output_dim_(0) { }
   virtual std::string Type() const { return "PnormComponent"; }
@@ -438,6 +439,7 @@ class FixedScaleComponent;
 class PerElementScaleComponent;
 class PerElementOffsetComponent;
 class PowerComponent;
+class GmmComponent;
 
 // Affine means a linear function plus an offset.
 // Note: although this class can be instantiated, it also
@@ -2166,6 +2168,106 @@ class PowerComponent: public UpdatableComponent {
               const CuVectorBase<BaseFloat> &offset);
 
   const PowerComponent &operator = (const PowerComponent &other);
+};
+
+// The GmmComponent is used in modeling parametric filters as a mixture of
+// gaussians, which is used to model filters in direct-from-raw-waveform setup.
+// The trainable filters have (num_mixtures * 3) * num_filters parameters.
+// 3 parameters per mixture are the mean, variance and weights per mixture and
+// num_filters are the number of filters used.
+//
+// The input values used in gaussian filters is linearly spaced in range
+// [-input-stddev, input-stddev].
+//
+// To impose semi-positivity on variance parameters, the exponential activation
+// function is used i.e beta = exp(beta')
+//
+// To impose positivity and the sum-to-one property of the mixing weights,
+// this layer stores real values, but applies softmax transform
+// wi = exp(wi')/(sum{j=1}^num_mixtures exp(w_j')).
+// We store wi' and beta', but we apply wi and beta in Gmm computation.
+class GmmComponent: public UpdatableComponent {
+ public:
+  virtual int32 InputDim() const { return dim_; }
+  virtual int32 OutputDim() const { return num_filters_; }
+
+  virtual std::string Info() const;
+  virtual void InitFromConfig(ConfigLine *cfl);
+
+  virtual std::string Type() const { return "GmmComponent"; }
+  virtual int32 Properties() const {
+    return kSimpleComponent|kUpdatableComponent|kBackpropNeedsInput|
+      kPropagateAdds|kBackpropAdds;
+  }
+
+  virtual void* Propagate(const ComponentPrecomputedIndexes *indexes,
+                         const CuMatrixBase<BaseFloat> &in,
+                         CuMatrixBase<BaseFloat> *out) const;
+
+  virtual void Backprop(const std::string &debug_info,
+                        const ComponentPrecomputedIndexes *indexes,
+                        const CuMatrixBase<BaseFloat> &in_value,
+                        const CuMatrixBase<BaseFloat> &, // out_value
+                        const CuMatrixBase<BaseFloat> &out_deriv,
+                        void *memo,
+                        Component *to_update,
+                        CuMatrixBase<BaseFloat> *in_deriv) const;
+
+  virtual void Read(std::istream &is, bool binary);
+  virtual void Write(std::ostream &os, bool binary) const;
+
+  virtual Component* Copy() const;
+
+  // Some functions from base-class UpdatableComponent.
+  virtual void Scale(BaseFloat scale);
+  virtual void Add(BaseFloat alpha, const Component &other);
+  virtual void PerturbParams(BaseFloat stddev);
+  virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
+  virtual int32 NumParameters() const;
+  virtual void Vectorize(VectorBase<BaseFloat> *params) const;
+  virtual void UnVectorize(const VectorBase<BaseFloat> &params);
+
+  // PowerComponent-specific functions.
+  void Init(int32 dim, int32 num_mixtures, int32 num_filters,
+            BaseFloat mean_stddev, BaseFloat var_stddev,
+            BaseFloat gmm_input_stddev);
+  explicit GmmComponent();
+  explicit GmmComponent(const GmmComponent &other);
+
+ protected:
+  int32 num_filters_;
+  int32 num_mixtures_;
+  int32 dim_;
+  // filter_params_ contains mean, psuedo_variance, and psuedo_weights per mixture
+  // for all filters.
+  // The softmax of psuedo-weights and exp(psuedo-variance) are applied
+  // to generate gmm filters.
+  // filter_params_.NumCols() is equal to num_filters_ and
+  // filter_params_.NumRows() is equal to (num_mixtures_ * 2 + 1).
+  // filter_params_.RowRange(0, num_mixtures).Col(i) are the means per mixture for
+  // filter i.
+  // filter_params_.Row(num_mixtures, num_mixtures) are psuedo-var for all filters
+  // filter_params_.RowRange(2 * num_mixtures, num_mixtures).Col(i) are
+  // psuedo-weights for filter i.
+  CuMatrix<BaseFloat> filter_params_;
+
+  CuVector<BaseFloat> input_for_gmm_;
+
+  // It computes the input vector for gaussian mixture function computation
+  void ComputeGmmInput(CuVector<BaseFloat> *input_for_gmm,
+                       BaseFloat input_stddev) const;
+
+  // This function computes gmm_filters, where row i is the i_th filter
+  // with dim equal to dim_.
+  void ComputeGmmFilters(CuMatrix<BaseFloat> *gmm_filters) const;
+
+  void Update(const std::string &debug_info,
+              const CuMatrixBase<BaseFloat> &in_value,
+              const CuMatrixBase<BaseFloat> &out_deriv,
+              const CuMatrixBase<BaseFloat> &filter_params,
+              const CuMatrixBase<BaseFloat> &gmm_filters);
+
+  const GmmComponent &operator = (const GmmComponent &other);
 };
 
 // The LogComponent outputs the log of input values as y = Log(max(x, epsi))

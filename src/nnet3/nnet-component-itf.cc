@@ -171,6 +171,8 @@ Component* Component::NewComponentOfType(const std::string &component_type) {
     ans = new LogComponent();
   } else if (component_type == "PowerComponent") {
     ans = new PowerComponent();
+  } else if (component_type == "GmmComponent") {
+    ans = new GmmComponent();
   }
   if (ans != NULL) {
     KALDI_ASSERT(component_type == ans->Type());

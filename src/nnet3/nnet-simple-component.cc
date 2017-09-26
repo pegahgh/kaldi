@@ -2791,8 +2791,8 @@ FixedAffineComponent::FixedAffineComponent(const AffineComponent &c):
     bias_params_(c.BiasParams()) { }
 
 void* FixedAffineComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
-                                     const CuMatrixBase<BaseFloat> &in,
-                                     CuMatrixBase<BaseFloat> *out) const  {
+                                      const CuMatrixBase<BaseFloat> &in,
+                                      CuMatrixBase<BaseFloat> *out) const  {
   out->CopyRowsFromVec(bias_params_); // Adds the bias term first.
   out->AddMatMat(1.0, in, kNoTrans, linear_params_, kTrans, 1.0);
   return NULL;
@@ -4629,6 +4629,290 @@ void PowerComponent::Update(const std::string &debug_info,
   } else {
     power_.AddRowSumMat(learning_rate_, power_update);
     offset_.AddRowSumMat(learning_rate_, offset_update);
+  }
+}
+
+std::string GmmComponent::Info() const {
+  std::ostringstream stream;
+  stream << Type() << ", dim=" << dim_
+         << ", num-filters=" << num_filters_
+         << ", num-mixtures=" << num_mixtures_;
+  return stream.str();
+}
+
+void GmmComponent::Read(std::istream &is, bool binary) {
+  ReadUpdatableCommon(is, binary);  // read opening tag and learning rate.
+  ExpectOneOrTwoTokens(is, binary, "<GmmComponent>", "<Dim>");
+  ReadBasicType(is, binary, &dim_);
+  ExpectToken(is, binary, "<NumFilters>");
+  ReadBasicType(is, binary, &num_filters_);
+  ExpectToken(is, binary, "<NumMixtures>");
+  ReadBasicType(is, binary, &num_mixtures_);
+  ExpectToken(is, binary, "<FilterParams>");
+  filter_params_.Read(is, binary);
+  ExpectToken(is, binary, "<GmmInput>");
+  input_for_gmm_.Read(is, binary);
+  ExpectToken(is, binary, "</GmmComponent>");
+}
+
+void GmmComponent::Write(std::ostream &os, bool binary) const {
+  WriteUpdatableCommon(os, binary);  // Write opening tag and learning rate
+  WriteToken(os, binary, "<Dim>");
+  WriteBasicType(os, binary, dim_);
+  WriteToken(os, binary, "<NumFilters>");
+  WriteBasicType(os, binary, num_filters_);
+  WriteToken(os, binary, "<NumMixtures>");
+  WriteBasicType(os, binary, num_mixtures_);
+  WriteToken(os, binary, "<FilterParams>");
+  filter_params_.Write(os, binary);
+  WriteToken(os, binary, "<GmmInput>");
+  input_for_gmm_.Write(os, binary);
+  WriteToken(os, binary, "</GmmComponent>");
+}
+
+void GmmComponent::Scale(BaseFloat scale) {
+  if (scale == 0.0)
+    filter_params_.SetZero();
+  else
+    filter_params_.Scale(scale);
+}
+
+void GmmComponent::Add(BaseFloat alpha, const Component &other_in) {
+  const GmmComponent *other =
+    dynamic_cast<const GmmComponent*>(&other_in);
+  KALDI_ASSERT(other != NULL);
+  KALDI_ASSERT(input_for_gmm_.ApproxEqual(other->input_for_gmm_, 1e-10));
+  filter_params_.AddMat(alpha, other->filter_params_);
+}
+
+void GmmComponent::PerturbParams(BaseFloat stddev) {
+  CuMatrix<BaseFloat> tmp_filter_params(filter_params_);
+  tmp_filter_params.SetRandn();
+  filter_params_.AddMat(stddev, tmp_filter_params);
+}
+
+BaseFloat GmmComponent::DotProduct(const UpdatableComponent &other_in) const{
+  const GmmComponent *other =
+    dynamic_cast<const GmmComponent*>(&other_in);
+  KALDI_ASSERT(input_for_gmm_.ApproxEqual(other->input_for_gmm_, 1e-10));
+  return TraceMatMat(filter_params_, other->filter_params_, kTrans);
+}
+
+int32 GmmComponent::NumParameters() const {
+  return (3 * num_mixtures_ * num_filters_);
+}
+
+void GmmComponent::Vectorize(VectorBase<BaseFloat> *params) const {
+  KALDI_ASSERT(params->Dim() == this->NumParameters());
+  params->CopyRowsFromMat(filter_params_);
+}
+
+void GmmComponent::UnVectorize(const VectorBase<BaseFloat> &params) {
+  KALDI_ASSERT(params.Dim() == this->NumParameters());
+  filter_params_.CopyRowsFromVec(params);
+}
+
+void GmmComponent::ComputeGmmInput(CuVector<BaseFloat> *input_for_gmm,
+                                   BaseFloat input_stddev) const {
+  input_for_gmm->Resize(dim_);
+
+  for (int32 i = 0; i < dim_; i++)
+    (*input_for_gmm)(i) = input_stddev *  (-1.0 + i / (dim_ - 1.0) * 2.0);
+}
+
+void GmmComponent::ComputeGmmFilters(CuMatrix<BaseFloat> *gmm_filters) const {
+  KALDI_ASSERT(gmm_filters->NumRows() == num_filters_ &&
+               gmm_filters->NumCols() == dim_ &&
+               input_for_gmm_.Dim() == dim_);
+  CuMatrix<BaseFloat> gmm_input_mat(num_filters_, dim_);
+  gmm_input_mat.CopyRowsFromVec(input_for_gmm_);
+
+  CuMatrix<BaseFloat> var_mat(filter_params_.RowRange(num_mixtures_, num_mixtures_));
+  var_mat.ApplyExp();
+  var_mat.ApplyFloor(1e-10); // exp(psuedo-sigma)
+
+  CuMatrix<BaseFloat> norm_weights(num_filters_, num_mixtures_),
+    weight_trans(filter_params_.RowRange(2 * num_mixtures_, num_mixtures_), kTrans);
+  norm_weights.ApplySoftMaxPerRow(weight_trans); // exp(w_i)/sum{j}(exp(w_j))
+  CuMatrix<BaseFloat> norm_weights_trans(norm_weights, kTrans);
+
+  gmm_filters->Set(0.0);
+
+  BaseFloat scaled_pi = std::pow(M_2PI, -0.5);
+  for (int i = 0; i < num_mixtures_; i++) {
+    CuMatrix<BaseFloat> gmm_per_mixture(gmm_input_mat);
+    // The gmm_filters.Row(i) is
+    // sum_{j=1}^num_mixtures {w_j/(2pi var_j^2)^0.5 * exp-(x - m_j)^2/(2*var_j^2)}
+    // where x is linearly spaced values in [-input_stddev, input_stddev]
+    // computed using ComputeGmmInput.
+    // We use exp(var_j') to impose positive monotonic behavior in modeling variance
+    gmm_per_mixture.AddVecToCols(-1.0, filter_params_.Row(i));
+    gmm_per_mixture.DivRowsVec(var_mat.Row(i));
+    gmm_per_mixture.ApplyPow(2.0);
+    gmm_per_mixture.Scale(-0.5);
+    gmm_per_mixture.ApplyExp();
+    gmm_per_mixture.DivRowsVec(var_mat.Row(i));
+    gmm_per_mixture.Scale(scaled_pi);
+    gmm_filters->AddDiagVecMat(1.0, norm_weights_trans.Row(i), gmm_per_mixture, kNoTrans, 1.0);
+  }
+}
+
+GmmComponent::GmmComponent(): dim_(0), num_filters_(0), num_mixtures_(0) {}
+
+Component* GmmComponent::Copy() const {
+  GmmComponent *ans = new GmmComponent(*this);
+  return ans;
+}
+
+GmmComponent::GmmComponent(const GmmComponent &other): UpdatableComponent(other),
+  num_filters_(other.num_filters_),
+  num_mixtures_(other.num_mixtures_),
+  dim_(other.dim_),
+  filter_params_(other.filter_params_),
+  input_for_gmm_(other.input_for_gmm_) {}
+
+void GmmComponent::InitFromConfig(ConfigLine *cfl) {
+  int32 dim = 0;
+  int32 num_mixtures = 10,
+    num_filters = 100;
+  BaseFloat mean_stddev = 1,
+    var_stddev = 0.1, gmm_input_stddev = 10.0;
+  bool ok = cfl->GetValue("dim", &dim);
+  cfl->GetValue("num-mixtures", &num_mixtures);
+  cfl->GetValue("num-filters", &num_filters);
+  cfl->GetValue("gmm-input-stddev", &gmm_input_stddev);
+
+  if (!cfl->GetValue("mean-stddev", &mean_stddev))
+    mean_stddev = 0.1 * gmm_input_stddev;
+  if (!cfl->GetValue("var-stddev", &var_stddev))
+    var_stddev = 0.01 * gmm_input_stddev;
+
+  if (!ok || cfl->HasUnusedValues() || dim <= 0)
+    KALDI_ERR << "Invalid initializer for layer of type "
+              << Type() << ": \"" << cfl->WholeLine() << "\"";
+  Init(dim, num_mixtures, num_filters, mean_stddev, var_stddev, gmm_input_stddev);
+}
+
+void GmmComponent::Init(int32 dim, int32 num_mixtures, int32 num_filters,
+                        BaseFloat mean_stddev, BaseFloat var_stddev,
+                        BaseFloat gmm_input_stddev) {
+  dim_ = dim;
+  num_mixtures_ = num_mixtures;
+  num_filters_ = num_filters;
+  filter_params_.Resize((3 * num_mixtures_), num_filters_);
+  CuVector<BaseFloat> mean_vec(num_filters_),
+    var_vec(num_filters_);
+  mean_vec.SetRandn();
+  mean_vec.Scale(mean_stddev);
+  var_vec.SetRandn();
+  var_vec.Scale(var_stddev);
+  filter_params_.RowRange(0, num_mixtures_).CopyRowsFromVec(mean_vec);
+  filter_params_.RowRange(num_mixtures_, num_mixtures_).CopyRowsFromVec(var_vec);
+  filter_params_.RowRange(2 * num_mixtures_, num_mixtures_).Set(1.0 / num_mixtures_);
+  KALDI_ASSERT( (mean_stddev + var_stddev) < 0.6 * gmm_input_stddev);
+  ComputeGmmInput(&input_for_gmm_, gmm_input_stddev);
+}
+
+void* GmmComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
+                              const CuMatrixBase<BaseFloat> &in,
+                              CuMatrixBase<BaseFloat> *out) const {
+  KALDI_ASSERT(in.NumCols() == dim_ &&
+               out->NumCols() == num_filters_ &&
+               in.NumRows() == out->NumRows());
+
+  CuMatrix<BaseFloat> gmm_filters(num_filters_, dim_);
+  ComputeGmmFilters(&gmm_filters);
+  out->AddMatMat(1.0, in, kNoTrans, gmm_filters, kTrans, 1.0);
+  return NULL;
+}
+
+void GmmComponent::Backprop(const std::string &debug_info,
+                            const ComponentPrecomputedIndexes *indexes,
+                            const CuMatrixBase<BaseFloat> &in_value,
+                            const CuMatrixBase<BaseFloat> &out_value,
+                            const CuMatrixBase<BaseFloat> &out_deriv,
+                            void *memo,
+                            Component *to_update_in,
+                            CuMatrixBase<BaseFloat> *in_deriv) const {
+  GmmComponent *to_update = dynamic_cast<GmmComponent*>(to_update_in);
+  CuMatrix<BaseFloat> gmm_filters(num_filters_, dim_);
+  ComputeGmmFilters(&gmm_filters);
+  if (in_deriv != NULL) {
+    in_deriv->AddMatMat(1.0, out_deriv, kNoTrans, gmm_filters, kNoTrans, 1.0);
+  }
+  if (to_update != NULL) {
+    to_update->Update(debug_info, in_value, out_deriv, filter_params_, gmm_filters);
+  }
+}
+
+void GmmComponent::Update(const std::string &debug_info,
+                          const CuMatrixBase<BaseFloat> &in_value,
+                          const CuMatrixBase<BaseFloat> &out_deriv,
+                          const CuMatrixBase<BaseFloat> &filter_params,
+                          const CuMatrixBase<BaseFloat> &gmm_filters) {
+  CuMatrix<BaseFloat> real_vars(filter_params.RowRange(num_mixtures_,
+    num_mixtures_));
+  real_vars.ApplyExp(); // real_vars are exp(psuedo-vars);
+  real_vars.ApplyFloor(1e-10);
+
+  CuMatrix<BaseFloat> norm_weights(num_filters_, num_mixtures_),
+    weight_trans(filter_params_.RowRange(2 * num_mixtures_, num_mixtures_), kTrans),
+    real_vars_sqr(real_vars);
+  real_vars_sqr.ApplyPow(2.0);
+
+  // norm_weight are softmax(psuedo-weights)
+  norm_weights.ApplySoftMaxPerRow(weight_trans);
+  CuMatrix<BaseFloat> norm_weights_trans(norm_weights, kTrans),
+    gmm_input_mat(num_filters_, dim_),
+    local_weight_deriv(norm_weights_trans); // (1-w);
+  local_weight_deriv.Scale(-1.0);
+  local_weight_deriv.Add(1.0); // (1-w)
+
+  gmm_input_mat.CopyRowsFromVec(input_for_gmm_); // x
+  // mean_update_t1 = in_value' * out_deriv, which is 'num_filter' by 'dim_' matrix.
+  CuMatrix<BaseFloat> mean_update_t1(num_filters_, dim_);
+  mean_update_t1.AddMatMat(1.0, out_deriv, kTrans, in_value,
+    kNoTrans, 0.0);
+
+  BaseFloat scaled_pi = std::pow(M_2PI, -0.5);
+  for (int32 i = 0; i < num_mixtures_; i++) {
+    // we store beta' and w', but we apply beta and w
+    // compute updates for means
+    CuMatrix<BaseFloat> shifted_in(gmm_input_mat);
+    shifted_in.AddVecToCols(-1.0, filter_params.Row(i));
+    CuMatrix<BaseFloat> mixture_mat(shifted_in),
+      shifted_var_norm_in(shifted_in);
+    mixture_mat.DivRowsVec(real_vars.Row(i));
+    mixture_mat.ApplyPow(2.0);
+    mixture_mat.Scale(-0.5);
+    mixture_mat.ApplyExp();
+    mixture_mat.DivRowsVec(real_vars.Row(i));
+    mixture_mat.Scale(scaled_pi);
+    // M_i is a matrix of num_filters_ by dim_, where j_th row of M_i
+    // corresponds to i_th mixture values for filter j.
+    // M_i = w_i/(2pi * sigma^2)^0.5 * ( exp(-0.5((x-mean_i)/sigma)^2)
+    mixture_mat.MulRowsVec(norm_weights_trans.Row(i));
+    CuMatrix<BaseFloat> mixture_mat_orig(mixture_mat);
+
+    // dy/dw_i' = dy/dw_i * dw_i/dw_i'
+    CuMatrix<BaseFloat> weight_update(gmm_filters); // M_i - w_i * sum_{j} M_j
+    weight_update.MulRowsVec(norm_weights_trans.Row(i));
+    weight_update.Scale(-1.0);
+    weight_update.AddMat(1.0, mixture_mat_orig);
+    //weight_update.MulRowsVec(local_weight_deriv.Row(i)); // M_i - w_i * sum_{j} M_j
+    filter_params_.Row(2 * num_mixtures_ + i).AddDiagMatMat(learning_rate_,
+      weight_update, kNoTrans, mean_update_t1, kTrans, 1.0);
+
+    // dy/dmean_i = (x-mean_i)/sigma^2
+    shifted_var_norm_in.DivRowsVec(real_vars_sqr.Row(i));
+    mixture_mat.MulElements(shifted_var_norm_in); // M_i * (x-mean_i)/sigma^2
+    filter_params_.Row(i).AddDiagMatMat(learning_rate_, mixture_mat, kNoTrans, mean_update_t1, kTrans, 1.0);
+
+    // dy/dsigma' = M_i * (x-sigma)^2/sigma^2
+    mixture_mat.MulElements(shifted_in);
+    mixture_mat.AddMat(-1.0, mixture_mat_orig); // M_i * [(x-mean_i)^2/sigma^2 - 1]
+    filter_params_.Row(num_mixtures_ + i).AddDiagMatMat(learning_rate_, mixture_mat, kNoTrans,
+      mean_update_t1, kTrans, 1.0);
   }
 }
 

@@ -1354,7 +1354,7 @@ void ComputeExampleComputationRequestSimple(
 static void GenerateRandomComponentConfig(std::string *component_type,
                                           std::string *config) {
 
-  int32 n = RandInt(0, 34);
+  int32 n = RandInt(35, 35);
   BaseFloat learning_rate = 0.001 * RandInt(1, 100);
 
   std::ostringstream os;
@@ -1694,6 +1694,16 @@ static void GenerateRandomComponentConfig(std::string *component_type,
          << " offset-mean=" << 0.01 * RandInt(1, 10)
          << " offset-stddev=" << 0.001 * RandInt(1, 10)
          << " block-dim=" << block_dim;
+      break;
+    }
+    case 35: {
+      *component_type = "GmmComponent";
+      int32 num_filters = RandInt(10, 20),
+        num_mixtures = RandInt(5, 10),
+        dim = std::pow(2, RandInt(5, 8));
+      os << "dim=" << dim
+         << " num-filters=" << num_filters
+         << " num-mixtures=" << num_mixtures;
       break;
     }
     default:
