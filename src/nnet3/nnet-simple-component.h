@@ -2055,16 +2055,19 @@ class LstmNonlinearityComponent: public UpdatableComponent {
 class ShiftInputComponent: public RandomComponent {
  public:
   void Init(int32 input_dim, int32 output_dim, BaseFloat max_shift,
-    BaseFloat rand_vol_var = 0.0);
+    BaseFloat rand_vol_var = 0.0, BaseFloat dither = 0.0, bool preprocess = false);
 
   explicit ShiftInputComponent(const ShiftInputComponent &other);
 
   explicit ShiftInputComponent(int32 input_dim, int32 output_dim,
                                BaseFloat max_shift,
-                               BaseFloat rand_vol_var = 0.0) {
-      Init(input_dim, output_dim, max_shift, rand_vol_var); }
+                               BaseFloat rand_vol_var = 0.0,
+                               BaseFloat dither = 0.0,
+                               bool preprocess = false) {
+      Init(input_dim, output_dim, max_shift, rand_vol_var, dither, preprocess); }
   ShiftInputComponent(): input_dim_(0), output_dim_(0), max_shift_(1.0),
-    rand_vol_var_(0.0), shift_per_frame_(false) { }
+    rand_vol_var_(0.0), shift_per_frame_(false), dither_(0.0),
+    preprocess_(false) { }
 
   virtual std::string Type() const { return "ShiftInputComponent"; }
   virtual std::string Info() const;
@@ -2097,12 +2100,18 @@ class ShiftInputComponent: public RandomComponent {
   /// Write component to stream
   virtual void Write(std::ostream &os, bool binary) const;
  protected:
+  void Preprocess(CuMatrixBase<BaseFloat> *preprocessed_in) const;
   int32 input_dim_;
   int32 output_dim_;
   BaseFloat max_shift_; // max shift is the max shift used to shift the input.
                         // max_shift_ should be between 0 and 1.
   BaseFloat rand_vol_var_; // The variance used to generate random volume perturbation value.
   bool shift_per_frame_;  // If true, different random shift is applied per frame of input.
+  BaseFloat dither_; // The random vector with stddev of dither_ is added to input before random shift.
+                     // The main reason is to make zero values on raw waveform nonzero.
+                     // This is done on both test and train.
+  bool preprocess_; // If true, the preemphasis, mean-removal and windowing is applied
+                    // on outputs.
 };
 
 // The PowerComponent is ((x_i+delta_i)^2)^p_i - (delta_i^2)^p_i, and the delta and P are
@@ -2230,7 +2239,8 @@ class GmmComponent: public UpdatableComponent {
   // PowerComponent-specific functions.
   void Init(int32 dim, int32 num_mixtures, int32 num_filters,
             BaseFloat mean_stddev, BaseFloat var_stddev,
-            BaseFloat gmm_input_stddev);
+            BaseFloat gmm_input_stddev,
+            bool const_var);
   explicit GmmComponent();
   explicit GmmComponent(const GmmComponent &other);
 
@@ -2238,6 +2248,7 @@ class GmmComponent: public UpdatableComponent {
   int32 num_filters_;
   int32 num_mixtures_;
   int32 dim_;
+  bool const_var_; // If true, variance is fixed and only mean and weight are trained.
   // filter_params_ contains mean, psuedo_variance, and psuedo_weights per mixture
   // for all filters.
   // The softmax of psuedo-weights and exp(psuedo-variance) are applied

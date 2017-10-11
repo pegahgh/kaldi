@@ -415,6 +415,9 @@ def train(args, run_opts):
             compute_cosine=False, add_bias=add_bias)
         common_lib.write_negate_vector(num_fft_bins,
             "{0}/configs/negate.vec".format(args.dir))
+        preemph = 0.97
+        common_lib.compute_and_write_preprocess_transform(preemph, feat_dim,
+            "{0}/configs/preprocess.mat".format(args.dir))
     if (args.stage <= -1):
         logger.info("Preparing the initial acoustic model.")
         chain_lib.prepare_initial_acoustic_model(args.dir, run_opts)

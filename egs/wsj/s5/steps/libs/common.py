@@ -15,7 +15,7 @@ import math
 import os
 import subprocess
 import threading
-
+import numpy as np
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
@@ -355,3 +355,28 @@ def write_sin_cos_transform_matrix(feat_dim, fft_dim, file_path, compute_cosine=
 def write_negate_vector(fft_dim, file_path):
     scale_vec = [[-1.0] * fft_dim]
     write_kaldi_matrix(file_path, scale_vec)
+
+# This function computes transform for applying mean-subtraction -> pre-emphasis
+#   -> windowing, which can be used in the begining of network.
+def compute_and_write_preprocess_transform(preemph, dim, file_path):
+    preemph_mat = [[0] * dim for i in range(dim)]
+    mean_subtract_mat = [[-1.0/dim] * dim for i in range(dim)]
+    window_mat = [[0] * dim for i in range(dim)]
+    preemph_mat[0][0] = 1.0 - 1.0 * preemph;
+    for i in range(dim):
+        if (i > 0):
+            preemph_mat[i][i-1] = -1.0 * preemph
+            preemph_mat[i][i] = 1.0
+        mean_subtract_mat [i][i] = 1.0 - 1.0/dim
+        if (i ==  0):
+            i_fl = float(i+1)
+        elif (i == (dim-1)):
+            i_fl = float(dim-2.0)
+        else:
+            i_fl = float(i)
+        window_mat[i][i] = (0.5 - 0.5 * math.cos(2 * math.pi * i_fl / float(dim)))**0.85
+    tot_mat_tmp = np.dot(preemph_mat, mean_subtract_mat)
+    tot_mat = np.dot(window_mat, tot_mat_tmp)
+    bias = np.zeros((dim,1))
+    biased_mat = np.c_[tot_mat, bias]
+    write_kaldi_matrix(file_path, biased_mat)

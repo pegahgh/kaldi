@@ -4182,7 +4182,9 @@ ShiftInputComponent::ShiftInputComponent(const ShiftInputComponent &other):
   output_dim_(other.output_dim_),
   max_shift_(other.max_shift_),
   rand_vol_var_(other.rand_vol_var_),
-  shift_per_frame_(other.shift_per_frame_) { }
+  shift_per_frame_(other.shift_per_frame_),
+  dither_(other.dither_),
+  preprocess_(other.preprocess_) { }
 
 Component* ShiftInputComponent::Copy() const {
   ShiftInputComponent *ans = new ShiftInputComponent(*this);
@@ -4194,26 +4196,31 @@ std::string ShiftInputComponent::Info() const {
   stream << Type() << ", input-dim=" << input_dim_
          << ", output-dim=" << output_dim_
          << ", max-shift=" << max_shift_
-         << ", shift-per-frame=" << shift_per_frame_;
+         << ", shift-per-frame=" << shift_per_frame_
+         << ", dither=" << dither_
+         << ", preprocess=" << preprocess_;
   return stream.str();
 }
 
 void ShiftInputComponent::Init(int32 input_dim, int32 output_dim, BaseFloat max_shift,
-    BaseFloat rand_vol_var) {
+    BaseFloat rand_vol_var,
+    BaseFloat dither, bool preprocess) {
   input_dim_ = input_dim;
   output_dim_ = output_dim;
   max_shift_ = max_shift;
   rand_vol_var_ = rand_vol_var;
-  KALDI_ASSERT(input_dim_ - output_dim_ > 0 && input_dim_ > 0);
+  dither_ = dither;
+  preprocess_ = preprocess;
+  KALDI_ASSERT(input_dim_ - output_dim_ >= 0 && input_dim_ > 0);
   KALDI_ASSERT(max_shift >= 0.0 && max_shift <= 1.0);
   KALDI_ASSERT(rand_vol_var >= 0.0 && rand_vol_var <= 1.0);
 }
 
 void ShiftInputComponent::InitFromConfig(ConfigLine *cfl) {
-  bool ok = true;
+  bool ok = true, preprocess = false;
   test_mode_ = false;
   int32 input_dim, output_dim;
-  BaseFloat max_shift = 1.0, rand_vol_var = 0.0;
+  BaseFloat max_shift = 1.0, rand_vol_var = 0.0, dither = 0.0;
   ok = ok && cfl->GetValue("input-dim", &input_dim);
   ok = ok && cfl->GetValue("output-dim", &output_dim);
   // It only makes sense to set test-mode in the config for testing purposes.
@@ -4223,7 +4230,9 @@ void ShiftInputComponent::InitFromConfig(ConfigLine *cfl) {
   if (cfl->GetValue("rand-vol-var", &rand_vol_var))
     KALDI_ASSERT(rand_vol_var >= 0 && rand_vol_var <= 1.0);
   cfl->GetValue("shift-per-frame", &shift_per_frame_);
-  Init(input_dim, output_dim, max_shift, rand_vol_var);
+  cfl->GetValue("dither", &dither);
+  cfl->GetValue("preprocess", &preprocess);
+  Init(input_dim, output_dim, max_shift, rand_vol_var, dither, preprocess);
 }
 
 void ShiftInputComponent::Read(std::istream &is, bool binary) {
@@ -4245,6 +4254,15 @@ void ShiftInputComponent::Read(std::istream &is, bool binary) {
     ReadBasicType(is, binary, &shift_per_frame_);
     ReadToken(is, binary, &token);
   }
+  if (token == "<Dither>") {
+    ReadBasicType(is, binary, &dither_);
+    ReadToken(is, binary, &token);
+  }
+  if (token == "<Preprocess>") {
+    ReadBasicType(is, binary, &preprocess_);
+    ReadToken(is, binary, &token);
+  }
+
   if (token == "<TestMode>") {
     ReadBasicType(is, binary, &test_mode_);  // read test mode
     ExpectToken(is, binary, "</ShiftInputComponent>");
@@ -4266,6 +4284,10 @@ void ShiftInputComponent::Write(std::ostream &os, bool binary) const {
   WriteBasicType(os, binary, rand_vol_var_);
   WriteToken(os, binary, "<ShiftPerFrame>");
   WriteBasicType(os, binary, shift_per_frame_);
+  WriteToken(os, binary, "<Dither>");
+  WriteBasicType(os, binary, dither_);
+  WriteToken(os, binary, "<Preprocess>");
+  WriteBasicType(os, binary, preprocess_);
   WriteToken(os, binary, "<TestMode>");
   WriteBasicType(os, binary, test_mode_);
   WriteToken(os, binary, "</ShiftInputComponent>");
@@ -4274,12 +4296,21 @@ void ShiftInputComponent::Write(std::ostream &os, bool binary) const {
 void* ShiftInputComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
                                      const CuMatrixBase<BaseFloat> &in,
                                      CuMatrixBase<BaseFloat> *out) const {
+  // dithering is done on both train and test time.
+  // it is done to make zero values nonzero on raw frame of signal.
+  CuMatrix<BaseFloat> modified_in(in);
+  if (dither_ != 0.0) {
+    CuMatrix<BaseFloat> dither_mat(in.NumRows(), in.NumCols());
+    dither_mat.SetRandn();
+    dither_mat.Scale(dither_);
+    modified_in.AddMat(1.0, dither_mat);
+  }
   if (test_mode_)
-    out->CopyFromMat(in.Range(0,in.NumRows(), 0, output_dim_));
+    out->CopyFromMat(modified_in.Range(0,in.NumRows(), 0, output_dim_));
   else {
     int32 in_out_diff = input_dim_ - output_dim_,
       shift;
-    KALDI_ASSERT(in_out_diff > 0);
+    KALDI_ASSERT(in_out_diff >= 0);
     int32 max_shift_int = static_cast<int32>(max_shift_ * in_out_diff);
     if (shift_per_frame_) {
       int32 block_size = 1024,
@@ -4293,19 +4324,52 @@ void* ShiftInputComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
         shift = static_cast<int32>(tmp(0,i) + 0.5);
         CuSubMatrix<BaseFloat> out_row = out->Range(start_row, num_shifted_row,
                                                     0, output_dim_);
-        out_row.CopyFromMat(in.Range(start_row, num_shifted_row, shift, output_dim_));
+        out_row.CopyFromMat(modified_in.Range(start_row, num_shifted_row,
+          shift, output_dim_));
       }
     } else {
     // Generate random shift integer value.
     shift = RandInt(0, max_shift_int);
-    out->CopyFromMat(in.Range(0, in.NumRows(), shift, output_dim_));
+    out->CopyFromMat(modified_in.Range(0, in.NumRows(), shift, output_dim_));
 
-    BaseFloat rand_vol = (1.0 + rand_vol_var_ *  (Rand() % 2 ? -1.0 : 1.0) * RandUniform());
+    BaseFloat rand_vol = (1.0 + rand_vol_var_ *
+      (Rand() % 2 ? -1.0 : 1.0) * RandUniform());
     if (rand_vol != 0 && rand_vol != 1.0)
       out->Scale(rand_vol);
     }
   }
+  if (preprocess_)
+    Preprocess(out);
   return NULL;
+}
+
+void ShiftInputComponent::Preprocess(CuMatrixBase<BaseFloat> *preprocessed_in) const {
+  // removing dc offset
+  int32 dim = preprocessed_in->NumCols(),
+    num_rows = preprocessed_in->NumRows();
+  BaseFloat scale_w = 1.0 / float(dim), preemph = 0.97;
+  CuVector<BaseFloat> mean(num_rows);
+  mean.AddColSumMat(scale_w, *preprocessed_in, 0);
+  preprocessed_in->AddVecToCols(-1.0, mean);
+
+  // Doing pre-emphasis
+  CuMatrix<BaseFloat> shifted_in(preprocessed_in->ColRange(0, dim-1));
+  preprocessed_in->ColRange(1, dim-1).AddMat(-1.0 * preemph, shifted_in);
+  preprocessed_in->ColRange(0,1).Scale(1.0 - preemph);
+
+
+  // Apply windowing
+  CuVector<BaseFloat> window(dim);
+  double a = M_2PI / (dim-1);
+  for (int32 i = 1; i < dim-1; i++) {
+    double i_fl = static_cast<double>(i);
+    window(i) = std::pow(0.5 - 0.5 * cos(a * i_fl), 0.85);
+  }
+  window(0) = window(1);
+  window(dim - 1) = window(dim - 2);
+  CuMatrix<BaseFloat> window_mat(preprocessed_in->NumRows(), dim);
+  window_mat.CopyRowsFromVec(window);
+  preprocessed_in->MulElements(window_mat);
 }
 
 void ShiftInputComponent::Backprop(const std::string &debug_info,
@@ -4634,9 +4698,37 @@ void PowerComponent::Update(const std::string &debug_info,
 
 std::string GmmComponent::Info() const {
   std::ostringstream stream;
+  CuVector<BaseFloat> filter_means(num_filters_), filter_vars(num_filters_);
+  CuMatrix<BaseFloat> weight(filter_params_.RowRange(2 * num_mixtures_,
+    num_mixtures_), kTrans), norm_weight(num_filters_, num_mixtures_);
+  norm_weight.ApplySoftMaxPerRow(weight);
+  filter_means.AddDiagMatMat(1.0, filter_params_.RowRange(0, num_mixtures_),
+    kTrans, norm_weight, kTrans, 0);
+
+  CuMatrix<BaseFloat> var_sqr(filter_params_.RowRange(num_mixtures_,
+    num_mixtures_));
+  var_sqr.ApplyExp();
+  var_sqr.ApplyPow(2.0);
+
+  CuVector<BaseFloat> mean_sqr(filter_means);
+  mean_sqr.ApplyPow(2.0);
+  norm_weight.ApplyPow(2.0);
+  filter_vars.AddDiagMatMat(1.0, var_sqr, kTrans, norm_weight, kTrans, 0);
+  //filter_vars.AddVec(-1.0, mean_sqr);
+
+
   stream << Type() << ", dim=" << dim_
          << ", num-filters=" << num_filters_
          << ", num-mixtures=" << num_mixtures_;
+ if (GetVerboseLevel() > 0) {
+   CuMatrix<BaseFloat> gmm_filters(num_filters_, dim_);
+   ComputeGmmFilters(&gmm_filters);
+   stream << ", gmm filters=" << gmm_filters
+          << ", filter means over mixtures=" << filter_means
+          << ", gmm means=" << filter_params_.RowRange(0, num_mixtures_)
+          << ", gmm variance=" << filter_params_.RowRange(num_mixtures_, num_mixtures_)
+          << ", gmm weights=" << filter_params_.RowRange(2 * num_mixtures_, num_mixtures_);
+ }
   return stream.str();
 }
 
@@ -4652,7 +4744,15 @@ void GmmComponent::Read(std::istream &is, bool binary) {
   filter_params_.Read(is, binary);
   ExpectToken(is, binary, "<GmmInput>");
   input_for_gmm_.Read(is, binary);
-  ExpectToken(is, binary, "</GmmComponent>");
+  std::string token;
+  ReadToken(is, binary, &token);
+  if (token == "<ConstVar>") {
+    ReadBasicType(is, binary, &const_var_);
+    ExpectToken(is, binary, "</GmmComponent>");
+  } else if (token != "</GmmComponent>") {
+    KALDI_ERR << "Expected token </GmmComponent>"
+              << ", got " << token;
+  }
 }
 
 void GmmComponent::Write(std::ostream &os, bool binary) const {
@@ -4667,14 +4767,21 @@ void GmmComponent::Write(std::ostream &os, bool binary) const {
   filter_params_.Write(os, binary);
   WriteToken(os, binary, "<GmmInput>");
   input_for_gmm_.Write(os, binary);
+  WriteToken(os, binary, "<ConstVar>");
+  WriteBasicType(os, binary, const_var_);
   WriteToken(os, binary, "</GmmComponent>");
 }
 
 void GmmComponent::Scale(BaseFloat scale) {
-  if (scale == 0.0)
-    filter_params_.SetZero();
-  else
-    filter_params_.Scale(scale);
+  if (const_var_) {
+    filter_params_.RowRange(0, num_mixtures_).Scale(scale);
+    filter_params_.RowRange(2 *  num_mixtures_, num_mixtures_).Scale(scale);
+  } else {
+    if (scale == 0.0)
+      filter_params_.SetZero();
+    else
+      filter_params_.Scale(scale);
+  }
 }
 
 void GmmComponent::Add(BaseFloat alpha, const Component &other_in) {
@@ -4682,42 +4789,90 @@ void GmmComponent::Add(BaseFloat alpha, const Component &other_in) {
     dynamic_cast<const GmmComponent*>(&other_in);
   KALDI_ASSERT(other != NULL);
   KALDI_ASSERT(input_for_gmm_.ApproxEqual(other->input_for_gmm_, 1e-10));
-  filter_params_.AddMat(alpha, other->filter_params_);
+  if (const_var_) {
+    filter_params_.RowRange(0, num_mixtures_).AddMat(alpha,
+      other->filter_params_.RowRange(0, num_mixtures_));
+    filter_params_.RowRange(2 * num_mixtures_, num_mixtures_).AddMat(alpha,
+      other->filter_params_.RowRange(2 * num_mixtures_, num_mixtures_));
+  } else {
+    filter_params_.AddMat(alpha, other->filter_params_);
+  }
 }
 
 void GmmComponent::PerturbParams(BaseFloat stddev) {
-  CuMatrix<BaseFloat> tmp_filter_params(filter_params_);
+  int32 num_rows = ((const_var_ ? 2 : 3) * num_mixtures_),
+    num_cols = num_filters_;
+  CuMatrix<BaseFloat> tmp_filter_params(num_rows, num_cols);
   tmp_filter_params.SetRandn();
-  filter_params_.AddMat(stddev, tmp_filter_params);
+  if (const_var_) {
+    filter_params_.RowRange(0, num_mixtures_).AddMat(stddev,
+      tmp_filter_params.RowRange(0, num_mixtures_));
+    filter_params_.RowRange(2 * num_mixtures_, num_mixtures_).AddMat(stddev,
+      tmp_filter_params.RowRange(num_mixtures_, num_mixtures_));
+  } else {
+    filter_params_.AddMat(stddev, tmp_filter_params);
+  }
 }
 
 BaseFloat GmmComponent::DotProduct(const UpdatableComponent &other_in) const{
   const GmmComponent *other =
     dynamic_cast<const GmmComponent*>(&other_in);
   KALDI_ASSERT(input_for_gmm_.ApproxEqual(other->input_for_gmm_, 1e-10));
-  return TraceMatMat(filter_params_, other->filter_params_, kTrans);
+  if (const_var_)
+    return TraceMatMat(filter_params_.RowRange(0, num_mixtures_),
+      other->filter_params_.RowRange(0, num_mixtures_), kTrans) +
+      TraceMatMat(filter_params_.RowRange(2 * num_mixtures_, num_mixtures_),
+        other->filter_params_.RowRange(2 * num_mixtures_, num_mixtures_), kTrans);
+  else
+    return TraceMatMat(filter_params_, other->filter_params_, kTrans);
 }
 
 int32 GmmComponent::NumParameters() const {
-  return (3 * num_mixtures_ * num_filters_);
+  return ((const_var_ ? 2 : 3) * num_mixtures_ * num_filters_);
 }
 
 void GmmComponent::Vectorize(VectorBase<BaseFloat> *params) const {
   KALDI_ASSERT(params->Dim() == this->NumParameters());
-  params->CopyRowsFromMat(filter_params_);
+  if (const_var_) {
+    params->Range(0, num_filters_ * num_mixtures_).CopyRowsFromMat(
+      filter_params_.RowRange(0, num_mixtures_));
+    params->Range(num_filters_ * num_mixtures_, num_filters_ * num_mixtures_).CopyRowsFromMat(
+      filter_params_.RowRange(2 * num_mixtures_, num_mixtures_));
+  } else
+    params->CopyRowsFromMat(filter_params_);
 }
 
 void GmmComponent::UnVectorize(const VectorBase<BaseFloat> &params) {
   KALDI_ASSERT(params.Dim() == this->NumParameters());
-  filter_params_.CopyRowsFromVec(params);
+  if (const_var_) {
+    filter_params_.RowRange(0, num_mixtures_).
+      CopyRowsFromVec(params.Range(0, num_filters_ * num_mixtures_));
+    filter_params_.RowRange(2 * num_mixtures_, num_mixtures_).
+      CopyRowsFromVec(params.Range(num_filters_ * num_mixtures_, num_filters_
+        * num_mixtures_));
+  } else
+    filter_params_.CopyRowsFromVec(params);
 }
 
 void GmmComponent::ComputeGmmInput(CuVector<BaseFloat> *input_for_gmm,
                                    BaseFloat input_stddev) const {
   input_for_gmm->Resize(dim_);
-
-  for (int32 i = 0; i < dim_; i++)
-    (*input_for_gmm)(i) = input_stddev *  (-1.0 + i / (dim_ - 1.0) * 2.0);
+  bool log_domain = true;
+  //BaseFloat const_val = 2.0 / (exp(1.0) - 1.0);
+  // the fft bins are linearly spaced in 0 to 700 with nyquist 4000.
+  BaseFloat ballast = 700.0 / 4000.0,
+    const_val = 2.0 / std::log(1.0 + 1.0 / ballast);
+  if (log_domain) {
+    for (int32 i = 0; i < dim_; i++) {
+      BaseFloat i_fl = float(1.0 + i / ((dim_- 1.0) * ballast));
+      (*input_for_gmm)(i) = input_stddev * (const_val * std::log(i_fl) - 1.0);
+    }
+  } else {
+    for (int32 i = 0; i < dim_; i++) {
+      //(*input_for_gmm)(i) = input_stddev * (const_val * (exp(i_fl) - exp(1.0))+ 1.0);
+      (*input_for_gmm)(i) = input_stddev *  (-1.0 + i / (dim_ - 1.0) * 2.0);
+    }
+  }
 }
 
 void GmmComponent::ComputeGmmFilters(CuMatrix<BaseFloat> *gmm_filters) const {
@@ -4757,7 +4912,7 @@ void GmmComponent::ComputeGmmFilters(CuMatrix<BaseFloat> *gmm_filters) const {
   }
 }
 
-GmmComponent::GmmComponent(): dim_(0), num_filters_(0), num_mixtures_(0) {}
+GmmComponent::GmmComponent(): dim_(0), num_filters_(0), num_mixtures_(0), const_var_(false) {}
 
 Component* GmmComponent::Copy() const {
   GmmComponent *ans = new GmmComponent(*this);
@@ -4769,7 +4924,8 @@ GmmComponent::GmmComponent(const GmmComponent &other): UpdatableComponent(other)
   num_mixtures_(other.num_mixtures_),
   dim_(other.dim_),
   filter_params_(other.filter_params_),
-  input_for_gmm_(other.input_for_gmm_) {}
+  input_for_gmm_(other.input_for_gmm_),
+  const_var_(other.const_var_) {}
 
 void GmmComponent::InitFromConfig(ConfigLine *cfl) {
   int32 dim = 0;
@@ -4777,7 +4933,9 @@ void GmmComponent::InitFromConfig(ConfigLine *cfl) {
     num_filters = 100;
   BaseFloat mean_stddev = 1,
     var_stddev = 0.1, gmm_input_stddev = 10.0;
-  bool ok = cfl->GetValue("dim", &dim);
+  bool const_var = false,
+    ok = cfl->GetValue("dim", &dim);
+  InitLearningRatesFromConfig(cfl);
   cfl->GetValue("num-mixtures", &num_mixtures);
   cfl->GetValue("num-filters", &num_filters);
   cfl->GetValue("gmm-input-stddev", &gmm_input_stddev);
@@ -4787,26 +4945,37 @@ void GmmComponent::InitFromConfig(ConfigLine *cfl) {
   if (!cfl->GetValue("var-stddev", &var_stddev))
     var_stddev = 0.01 * gmm_input_stddev;
 
+  if (!cfl->GetValue("const-var", &const_var));
+
   if (!ok || cfl->HasUnusedValues() || dim <= 0)
     KALDI_ERR << "Invalid initializer for layer of type "
               << Type() << ": \"" << cfl->WholeLine() << "\"";
-  Init(dim, num_mixtures, num_filters, mean_stddev, var_stddev, gmm_input_stddev);
+  Init(dim, num_mixtures, num_filters, mean_stddev, var_stddev,
+    gmm_input_stddev, const_var);
 }
 
 void GmmComponent::Init(int32 dim, int32 num_mixtures, int32 num_filters,
                         BaseFloat mean_stddev, BaseFloat var_stddev,
-                        BaseFloat gmm_input_stddev) {
+                        BaseFloat gmm_input_stddev,
+                        bool const_var) {
   dim_ = dim;
   num_mixtures_ = num_mixtures;
   num_filters_ = num_filters;
+  const_var_ = const_var;
   filter_params_.Resize((3 * num_mixtures_), num_filters_);
-  CuVector<BaseFloat> mean_vec(num_filters_),
-    var_vec(num_filters_);
-  mean_vec.SetRandn();
-  mean_vec.Scale(mean_stddev);
-  var_vec.SetRandn();
-  var_vec.Scale(var_stddev);
-  filter_params_.RowRange(0, num_mixtures_).CopyRowsFromVec(mean_vec);
+  CuMatrix<BaseFloat> mean_mat(num_mixtures_, num_filters_);
+  CuVector<BaseFloat> var_vec(num_filters_);
+  var_vec.Add(std::log(0.05 * gmm_input_stddev));
+  mean_mat.SetRandn();
+  mean_mat.Scale(2.0 * gmm_input_stddev / num_filters);
+  //var_vec.SetRandn();
+  //var_vec.Scale(var_stddev);
+  // gmm filters are equally spaced in range 0.8 * [-gmm_input_stddev, gmm_input_stddev].
+  //var_vec.Set(0.8 * 2 * gmm_input_stddev / (num_filters_ - 1.0));
+  for (int32 i = 0; i < num_filters_; i++) {
+    mean_mat.ColRange(i, 1).Add(0.8 * gmm_input_stddev * (-1.0 + 2.0 / (num_filters_ - 1.0) * i));
+  }
+  filter_params_.RowRange(0, num_mixtures_).AddMat(1.0, mean_mat);
   filter_params_.RowRange(num_mixtures_, num_mixtures_).CopyRowsFromVec(var_vec);
   filter_params_.RowRange(2 * num_mixtures_, num_mixtures_).Set(1.0 / num_mixtures_);
   KALDI_ASSERT( (mean_stddev + var_stddev) < 0.6 * gmm_input_stddev);
@@ -4911,8 +5080,9 @@ void GmmComponent::Update(const std::string &debug_info,
     // dy/dsigma' = M_i * (x-sigma)^2/sigma^2
     mixture_mat.MulElements(shifted_in);
     mixture_mat.AddMat(-1.0, mixture_mat_orig); // M_i * [(x-mean_i)^2/sigma^2 - 1]
-    filter_params_.Row(num_mixtures_ + i).AddDiagMatMat(learning_rate_, mixture_mat, kNoTrans,
-      mean_update_t1, kTrans, 1.0);
+    if (! const_var_)
+      filter_params_.Row(num_mixtures_ + i).AddDiagMatMat(learning_rate_, mixture_mat, kNoTrans,
+        mean_update_t1, kTrans, 1.0);
   }
 }
 

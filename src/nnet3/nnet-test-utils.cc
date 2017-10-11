@@ -1701,9 +1701,11 @@ static void GenerateRandomComponentConfig(std::string *component_type,
       int32 num_filters = RandInt(10, 20),
         num_mixtures = RandInt(5, 10),
         dim = std::pow(2, RandInt(5, 8));
+      bool const_var = (RandInt(0,1) == 0);
       os << "dim=" << dim
          << " num-filters=" << num_filters
-         << " num-mixtures=" << num_mixtures;
+         << " num-mixtures=" << num_mixtures
+         << " const-var=" << (const_var ? "true" : "false");
       break;
     }
     default:
