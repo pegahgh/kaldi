@@ -25,8 +25,10 @@
 #include "nnet3/nnet-simple-component.h"
 #include "nnet3/nnet-general-component.h"
 #include "nnet3/nnet-convolutional-component.h"
+#include "nnet3/nnet-attention-component.h"
 #include "nnet3/nnet-parse.h"
 #include "nnet3/nnet-computation-graph.h"
+
 
 
 // \file This file contains some more-generic component code: things in base classes.
@@ -61,8 +63,8 @@ ComponentPrecomputedIndexes* ComponentPrecomputedIndexes::NewComponentPrecompute
     ans = new BackpropTruncationComponentPrecomputedIndexes();
   } else if (cpi_type == "TimeHeightConvolutionComponentPrecomputedIndexes") {
     ans = new TimeHeightConvolutionComponent::PrecomputedIndexes();
-  } else if (cpi_type == "TimeConvolutionComponentPrecomputedIndexes") {
-    ans = new TimeConvolutionComponent::PrecomputedIndexes();
+  } else if (cpi_type == "RestrictedAttentionComponentPrecomputedIndexes") {
+    ans = new RestrictedAttentionComponent::PrecomputedIndexes();
   }
   if (ans != NULL) {
     KALDI_ASSERT(cpi_type == ans->Type());
@@ -161,8 +163,8 @@ Component* Component::NewComponentOfType(const std::string &component_type) {
     ans = new BatchNormComponent();
   } else if (component_type == "TimeHeightConvolutionComponent") {
     ans = new TimeHeightConvolutionComponent();
-  } else if (component_type == "TimeConvolutionComponent") {
-    ans = new TimeConvolutionComponent();
+  } else if (component_type == "RestrictedAttentionComponent") {
+    ans = new RestrictedAttentionComponent();
   } else if (component_type == "SumBlockComponent") {
     ans = new SumBlockComponent();
   } else if (component_type == "ShiftInputComponent") {
@@ -335,10 +337,8 @@ std::string NonlinearComponent::Info() const {
   if (InputDim() == OutputDim()) {
     stream << Type() << ", dim=" << InputDim();
   } else {
-    // Note: this is a very special case tailored for class NormalizeComponent.
     stream << Type() << ", input-dim=" << InputDim()
-           << ", output-dim=" << OutputDim()
-           << ", add-log-stddev=true";
+           << ", output-dim=" << OutputDim();
   }
 
   if (self_repair_lower_threshold_ != BaseFloat(kUnsetThreshold))
@@ -347,7 +347,7 @@ std::string NonlinearComponent::Info() const {
     stream << ", self-repair-upper-threshold=" << self_repair_upper_threshold_;
   if (self_repair_scale_ != 0.0)
     stream << ", self-repair-scale=" << self_repair_scale_;
-  if (count_ > 0 && value_sum_.Dim() == dim_ &&  deriv_sum_.Dim() == dim_) {
+  if (count_ > 0 && value_sum_.Dim() == dim_) {
     stream << ", count=" << std::setprecision(3) << count_
            << std::setprecision(6);
     stream << ", self-repaired-proportion="
@@ -357,10 +357,12 @@ std::string NonlinearComponent::Info() const {
     Vector<BaseFloat> value_avg(value_avg_dbl);
     value_avg.Scale(1.0 / count_);
     stream << ", value-avg=" << SummarizeVector(value_avg);
-    Vector<double> deriv_avg_dbl(deriv_sum_);
-    Vector<BaseFloat> deriv_avg(deriv_avg_dbl);
-    deriv_avg.Scale(1.0 / count_);
-    stream << ", deriv-avg=" << SummarizeVector(deriv_avg);
+    if (deriv_sum_.Dim() == dim_) {
+      Vector<double> deriv_avg_dbl(deriv_sum_);
+      Vector<BaseFloat> deriv_avg(deriv_avg_dbl);
+      deriv_avg.Scale(1.0 / count_);
+      stream << ", deriv-avg=" << SummarizeVector(deriv_avg);
+    }
   }
   return stream.str();
 }

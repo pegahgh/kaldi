@@ -155,7 +155,8 @@ void ComputeSimpleNnetContext(const Nnet &nnet,
 
   // This will crash if the total context (left + right) is greater
   // than window_size.
-  int32 window_size = 100;
+  int32 window_size = 200;
+
   // by going "<= modulus" instead of "< modulus" we do one more computation
   // than we really need; it becomes a sanity check.
   for (int32 input_start = 0; input_start <= modulus; input_start++)
@@ -663,35 +664,33 @@ void ReadEditConfig(std::istream &edit_config_is, Nnet *nnet) {
           num_learning_rates_set++;
         }
       }
-      KALDI_LOG << "Set learning rates for " << num_learning_rates_set << " nodes.";
+      KALDI_LOG << "Set learning rates for " << num_learning_rates_set << " components.";
     } else if (directive == "set-learning-rate-factor") {
       std::string name_pattern = "*";
-      // name_pattern defaults to '*' if none is given.  This pattern
-      // matches names of components, not nodes.
+      // name_pattern defaults to '*' if none is given.
       config_line.GetValue("name", &name_pattern);
-      BaseFloat learning_rate_factor = 1;
+      BaseFloat learning_rate_factor = -1;
       if (!config_line.GetValue("learning-rate-factor", &learning_rate_factor)) {
-        KALDI_ERR << "In edits-config, expected learning-rate to be set in line: "
+        KALDI_ERR << "In edits-config, expected learning-rate-factor to be set in line: "
                   << config_line.WholeLine();
       }
-      // Note: the learning rate you provide will be multiplied by any
-      // 'learning-rate-factor' that is defined in the component,
-      // so if you call SetUnderlyingLearningRate(), the actual learning
-      // rate (learning_rate_) is set to the value you provide times
-      // learning_rate_factor_.
+      // Note: the learning_rate_factor_  defined in the component
+      // sets to the value you provided, so if you call SetUnderlyingLearningRate(),
+      // the actual learning rate (learning_rate_) is set to the value you provided
+      // times learning_rate.
       UpdatableComponent *component = NULL;
-      int32 num_learning_rates_set = 0;
+      int32 num_learning_rate_factors_set = 0;
       for (int32 c = 0; c < nnet->NumComponents(); c++) {
         if (NameMatchesPattern(nnet->GetComponentName(c).c_str(),
-                               name_pattern.c_str()) &&
+            name_pattern.c_str()) &&
             (component =
-             dynamic_cast<UpdatableComponent*>(nnet->GetComponent(c)))) {
-          component->SetUnderlyingLearningRateFactor(learning_rate_factor);
-          num_learning_rates_set++;
+            dynamic_cast<UpdatableComponent*>(nnet->GetComponent(c)))) {
+          component->SetLearningRateFactor(learning_rate_factor);
+          num_learning_rate_factors_set++;
         }
       }
-      KALDI_LOG << "Set learning rates factor for " << num_learning_rates_set << " nodes.";
-
+      KALDI_LOG << "Set learning rate factors for " << num_learning_rate_factors_set
+                << " components.";
     } else if (directive == "rename-node") {
       // this is a shallow renaming of a node, and it requires that the name used is
       // not the name of another node.

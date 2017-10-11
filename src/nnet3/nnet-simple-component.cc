@@ -89,10 +89,11 @@ void PnormComponent::Write(std::ostream &os, bool binary) const {
 }
 
 DropoutComponent::DropoutComponent(const DropoutComponent &other):
-  dim_(other.dim_),
-  dropout_proportion_(other.dropout_proportion_),
-  dropout_per_frame_(other.dropout_per_frame_),
-  block_dropout_size_(other.block_dropout_size_) { test_mode_ = other.test_mode_; }
+    RandomComponent(other),
+    dim_(other.dim_),
+    dropout_proportion_(other.dropout_proportion_),
+    dropout_per_frame_(other.dropout_per_frame_),
+    block_dropout_size_(other.block_dropout_size_) { }
 
 Component* DropoutComponent::Copy() const {
   DropoutComponent *ans = new DropoutComponent(*this);
@@ -3047,12 +3048,18 @@ void FixedScaleComponent::InitFromConfig(ConfigLine *cfl) {
     Init(vec);
   } else {
     int32 dim;
+    BaseFloat scale = 1.0;
+    bool scale_is_set = cfl->GetValue("scale", &scale);
     if (!cfl->GetValue("dim", &dim) || cfl->HasUnusedValues())
       KALDI_ERR << "Invalid initializer for layer of type "
                 << Type() << ": \"" << cfl->WholeLine() << "\"";
     KALDI_ASSERT(dim > 0);
     CuVector<BaseFloat> vec(dim);
-    vec.SetRandn();
+    if (scale_is_set) {
+      vec.Set(scale);
+    } else {
+      vec.SetRandn();
+    }
     Init(vec);
   }
 }

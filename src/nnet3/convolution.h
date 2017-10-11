@@ -557,6 +557,7 @@ void ConvolveBackwardParams(
    (e.g. as supplied to ReorderIndexes()), and figures out a regular structure
    for them (i.e. the smallest grid that will completely cover all the t,n
    pairs).
+   This function ignores any 't' values that are kNoTime.
 */
 void GetComputationIo(
     const std::vector<Index> &input_indexes,

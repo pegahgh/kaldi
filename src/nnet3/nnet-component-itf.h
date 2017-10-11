@@ -404,7 +404,8 @@ class RandomComponent: public Component {
 
   RandomComponent(): test_mode_(false) { }
 
-  RandomComponent(const RandomComponent &other): test_mode_(other.test_mode_) {}
+  RandomComponent(const RandomComponent &other):
+      test_mode_(other.test_mode_) {}
  protected:
   CuRand<BaseFloat> random_generator_;
 
@@ -477,6 +478,11 @@ class UpdatableComponent: public Component {
   /// \brief Sets is_gradient_ to true and sets learning_rate_ to 1, ignoring
   /// learning_rate_factor_.
   virtual void SetAsGradient() { learning_rate_ = 1.0; is_gradient_ = true; }
+
+  // Sets the learning rate factors to lrate_factor.
+  virtual void SetLearningRateFactor(BaseFloat lrate_factor) {
+    learning_rate_factor_ = lrate_factor;
+  }
 
   /// freezes/unfreezes NaturalGradient updates, if applicable (to be overriden
   /// by components that use Natural Gradient).
