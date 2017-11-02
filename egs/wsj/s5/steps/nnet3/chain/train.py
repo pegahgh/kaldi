@@ -434,7 +434,7 @@ def train(args, run_opts):
         feat_dim = args.fft_feat_dim
         add_bias = True
         #feat_dim=250
-        num_fft_bins = 2**(feat_dim-1).bit_length()
+        num_fft_bins = 2*(2**(feat_dim-1).bit_length())
         common_lib.write_sin_cos_transform_matrix(feat_dim, num_fft_bins,
             "{0}/configs/cos_transform.mat".format(args.dir),
             compute_cosine=True, add_bias=add_bias)

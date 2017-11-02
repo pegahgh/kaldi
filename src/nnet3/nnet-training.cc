@@ -151,6 +151,7 @@ void NnetTrainer::ProcessOutputs(bool is_backstitch_step2,
   const std::string suffix = (is_backstitch_step2 ? "_backstitch" : "");
   std::vector<NnetIo>::const_iterator iter = eg.io.begin(),
       end = eg.io.end();
+  BaseFloat regularize = config_.regression_regularize;
   for (; iter != end; ++iter) {
     const NnetIo &io = *iter;
     int32 node_index = nnet_->GetNodeIndex(io.name);
@@ -161,7 +162,9 @@ void NnetTrainer::ProcessOutputs(bool is_backstitch_step2,
       bool supply_deriv = true;
       ComputeObjectiveFunction(io.features, obj_type, io.name,
                                supply_deriv, computer,
-                               &tot_weight, &tot_objf);
+                               &tot_weight, &tot_objf,
+                               (io.name.find("regression") != std::string::npos 
+                                ? regularize : 1.0));
       objf_info_[io.name + suffix].UpdateStats(io.name + suffix,
                                       config_.print_interval,
                                       num_minibatches_processed_,
@@ -178,7 +181,8 @@ bool NnetTrainer::PrintTotalStats() const {
   for (; iter != end; ++iter) {
     const std::string &name = iter->first;
     const ObjectiveFunctionInfo &info = iter->second;
-    ans = ans || info.PrintTotalStats(name);
+    bool ok = info.PrintTotalStats(name);
+    ans = ans || ok;
   }
   PrintMaxChangeStats();
   return ans;
@@ -317,7 +321,8 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
                               bool supply_deriv,
                               NnetComputer *computer,
                               BaseFloat *tot_weight,
-                              BaseFloat *tot_objf) {
+                              BaseFloat *tot_objf,
+                              BaseFloat regularize) {
   const CuMatrixBase<BaseFloat> &output = computer->GetOutput(output_name);
 
   if (output.NumCols() != supervision.NumCols())
@@ -341,6 +346,8 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
             CuMatrix<BaseFloat> output_deriv(output.NumRows(), output.NumCols(),
                                              kUndefined);
             cu_post.CopyToMat(&output_deriv);
+            if (regularize != 1.0)
+              output_deriv.Scale(regularize);
             computer->AcceptInput(output_name, &output_deriv);
           }
           break;
@@ -351,6 +358,8 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
           CuMatrix<BaseFloat> cu_post(supervision.GetFullMatrix());
           *tot_weight = cu_post.Sum();
           *tot_objf = TraceMatMat(output, cu_post, kTrans);
+          if (regularize != 1.0)
+            cu_post.Scale(regularize);
           if (supply_deriv)
             computer->AcceptInput(output_name, &cu_post);
           break;
@@ -362,6 +371,8 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
           cu_post.Swap(&post);
           *tot_weight = cu_post.Sum();
           *tot_objf = TraceMatMat(output, cu_post, kTrans);
+          if (regularize != 1.0)
+            cu_post.Scale(regularize);
           if (supply_deriv)
             computer->AcceptInput(output_name, &cu_post);
           break;
@@ -378,6 +389,8 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
       diff.AddMat(-1.0, output);
       *tot_weight = diff.NumRows();
       *tot_objf = -0.5 * TraceMatMat(diff, diff, kTrans);
+      if (regularize != 1.0)
+        diff.Scale(regularize);
       if (supply_deriv)
         computer->AcceptInput(output_name, &diff);
       break;

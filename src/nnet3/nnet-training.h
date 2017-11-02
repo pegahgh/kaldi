@@ -42,6 +42,7 @@ struct NnetTrainerOptions {
   std::string write_cache;
   bool binary_write_cache;
   BaseFloat max_param_change;
+  BaseFloat regression_regularize;
   NnetOptimizeOptions optimize_config;
   NnetComputeOptions compute_config;
   CachingOptimizingCompilerOptions compiler_config;
@@ -54,7 +55,8 @@ struct NnetTrainerOptions {
       backstitch_training_scale(0.0),
       backstitch_training_interval(1),
       binary_write_cache(true),
-      max_param_change(2.0) { }
+      max_param_change(2.0),
+      regression_regularize(1.0) { }
   void Register(OptionsItf *opts) {
     opts->Register("store-component-stats", &store_component_stats,
                    "If true, store activations and derivatives for nonlinear "
@@ -88,7 +90,8 @@ struct NnetTrainerOptions {
                    "the cached computation.");
     opts->Register("binary-write-cache", &binary_write_cache, "Write "
                    "computation cache in binary mode");
-
+    opts->Register("regression-regularize", &regression_regularize, "regulazitation factor "
+                   "for regression objective function.");
     // register the optimization options with the prefix "optimization".
     ParseOptions optimization_opts("optimization", opts);
     optimize_config.Register(&optimization_opts);
@@ -255,7 +258,8 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
                               bool supply_deriv,
                               NnetComputer *computer,
                               BaseFloat *tot_weight,
-                              BaseFloat *tot_objf);
+                              BaseFloat *tot_objf,
+                              BaseFloat regularize = 1.0);
 
 
 

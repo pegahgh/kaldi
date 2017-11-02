@@ -4463,6 +4463,9 @@ std::string PowerComponent::Info() const {
          << ", offset-average=" << offset_.Sum() / num_blocks
          << ", offset-stddev=" << offset_stddev
          << " with block-dim=" << block_dim_;
+  if (GetVerboseLevel() > 0)
+    stream << " offset=" << offset_
+           << " power="  << power_;
   return stream.str();
 }
 
@@ -4730,11 +4733,14 @@ std::string GmmComponent::Info() const {
  if (GetVerboseLevel() > 0) {
    CuMatrix<BaseFloat> gmm_filters(num_filters_, dim_);
    ComputeGmmFilters(&gmm_filters);
+   CuVector<BaseFloat> gmm_filter_sum(dim_);
+   gmm_filter_sum.AddRowSumMat(1.0, gmm_filters, 0.0);
    stream << ", gmm filters=" << gmm_filters
           << ", filter means over mixtures=" << filter_means
           << ", gmm means=" << filter_params_.RowRange(0, num_mixtures_)
           << ", gmm variance=" << filter_params_.RowRange(num_mixtures_, num_mixtures_)
-          << ", gmm weights=" << filter_params_.RowRange(2 * num_mixtures_, num_mixtures_);
+          << ", gmm weights=" << filter_params_.RowRange(2 * num_mixtures_, num_mixtures_)
+          << ", gmm filter-sum per bin=" << gmm_filter_sum;
  }
   return stream.str();
 }

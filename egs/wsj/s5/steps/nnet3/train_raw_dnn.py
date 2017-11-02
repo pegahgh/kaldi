@@ -81,7 +81,10 @@ def get_args():
                         choices=["true", "false"], default=False,
                         help="""If true, then the average output of the
                         network is computed and dumped as post.final.vec""")
-
+    parser.add_argument("--trainer.regression-regularize", type=float,
+                        dest='regression_regularize', default=1.0,
+                        help="Weight of regression regularization function "
+                        "which is the regression cost the outputs.")
     # General options
     parser.add_argument("--nj", type=int, default=4,
                         help="Number of parallel jobs")
@@ -338,11 +341,20 @@ def train(args, run_opts):
                                                        args.final_effective_lrate)
 
             shrinkage_value = 1.0 - (args.proportional_shrink * lrate)
+            percent = num_archives_processed * 100.0 / num_archives_to_process
+            epoch = (num_archives_processed * args.num_epochs
+                     / num_archives_to_process)
+            shrink_info_str = ''
             if shrinkage_value <= 0.5:
                 raise Exception("proportional-shrink={0} is too large, it gives "
                                 "shrink-value={1}".format(args.proportional_shrink,
                                                           shrinkage_value))
-
+            logger.info("Iter: {0}/{1}    "
+                        "Epoch: {2:0.2f}/{3:0.1f} ({4:0.1f}% complete)    "
+                        "lr: {5:0.6f}    {6}".format(iter, num_iters - 1,
+                                                     epoch, args.num_epochs,
+                                                     percent,
+                                                     lrate, shrink_info_str))
             train_lib.common.train_one_iteration(
                 dir=args.dir,
                 iter=iter,
@@ -367,7 +379,8 @@ def train(args, run_opts):
                 image_augmentation_opts=args.image_augmentation_opts,
                 use_multitask_egs=use_multitask_egs,
                 backstitch_training_scale=args.backstitch_training_scale,
-                backstitch_training_interval=args.backstitch_training_interval)
+                backstitch_training_interval=args.backstitch_training_interval,
+                regression_regularize=args.regression_regularize)
 
             if args.cleanup:
                 # do a clean up everything but the last 2 models, under certain
