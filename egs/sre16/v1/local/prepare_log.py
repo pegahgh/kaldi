@@ -43,7 +43,9 @@ parser.add_argument('--predicted-label', type=str, required=True,
                     help='The data directory for predicted classes.'
                          'This file is generated using evaluate_age.sh '
                          'and the format is true-shifted-age predicted-shifted-age '
-                         ' e.g. 0 3.')
+                         ' e.g. 0 3.'
+                         'The true and predicted age should be in same base.(i.e. zero-based age)'
+                         ' and the original class label is the label in test-label in same line.' )
 parser.add_argument("output_dir",
                     help="experiment directory, e.g. exp/report")
 
