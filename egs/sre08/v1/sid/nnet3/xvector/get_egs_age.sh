@@ -43,7 +43,7 @@ stage=0
 nj=12        # This should be set to the maximum number of jobs you are
              # comfortable to run in parallel; you can increase it if your disk
              # speed is greater and you have more machines.
-
+valid_uttlist= # the cross-validation utt list.
 echo "$0 $@"  # Print the command line for logging
 
 if [ -f path.sh ]; then . ./path.sh; fi
@@ -101,7 +101,12 @@ cp $data/utt2num_frames $dir/temp/utt2num_frames
 if [ $stage -le 0 ]; then
   echo "$0: Preparing train and validation lists"
   # Pick a list of heldout utterances for validation egs
-  awk '{print $1}' $data/utt2spk | utils/shuffle_list.pl | head -$num_heldout_utts > $temp/valid_uttlist || exit 1;
+  if [ -z $valid_uttlist ]; then # if cv uttlist is passed.
+    awk '{print $1}' $data/utt2spk | utils/shuffle_list.pl | head -$num_heldout_utts > $temp/valid_uttlist || exit 1;
+  else
+    echo "$0:valid_uttlist $valid_uttlist is copied to $temp/valid_uttlist."
+    cp $valid_uttlist $temp/valid_uttlist
+  fi
   # The remaining utterances are used for training egs
   utils/filter_scp.pl --exclude $temp/valid_uttlist $temp/utt2num_frames > $temp/utt2num_frames.train
   utils/filter_scp.pl $temp/valid_uttlist $temp/utt2num_frames > $temp/utt2num_frames.valid

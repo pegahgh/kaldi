@@ -113,7 +113,7 @@ class XconfigConvLayer(XconfigLayerBase):
     def __init__(self, first_token, key_to_value, prev_names = None):
         operations = first_token.split('-')[:-1]
         for operation in operations:
-            assert operation in ['oldtimeconv', 'timeconv', 'shift', 'conv', 'renorm', 'batchnorm', 'relu', 'dropout', 'log', 'permute', 'maxpool']
+            assert operation in ['oldtimeconv', 'timeconv', 'shift', 'conv', 'renorm', 'batchnorm', 'relu', 'dropout', 'log', 'permute', 'maxpool', 'nin']
         XconfigLayerBase.__init__(self, first_token, key_to_value, prev_names)
 
     def set_default_configs(self):
@@ -296,7 +296,7 @@ class XconfigConvLayer(XconfigLayerBase):
                 configs.append('component name={0}.shift type=ShiftInputComponent '
                                '{1}'.format(name, conv_opts))
                 configs.append('component-node name={0}.shift component={0}.shift '
-                               'input={1}'.format(name, cur_descriptor))
+                               'input={1} preprocess={2} max-shift={3}'.format(name, cur_descriptor, preprocess, max_shift))
                 input_dim = self.config['output-dim'] # input-dim changed after shift.
             elif operation == 'maxpool':
                 assert('timeconv' in operations or 'oldtimeconv' in operations)
@@ -312,6 +312,16 @@ class XconfigConvLayer(XconfigLayerBase):
                 configs.append('component-node name={0}.maxpool component={0}.maxpool '
                                'input={1}'.format(name, cur_descriptor))
                 cur_dim = cur_num_filters
+            elif operation == 'nin':
+                # add nin nonlinearity
+                a = []
+                nin_opts = ' '.join(a)
+            elif operation == 'abs':
+                assert('relu' in operations or 'abs' in operations)
+                configs.append('component name={0}.abs type=PnormComponent '
+                               'input-dim={1} output-dim={1}'.format(name, dim))
+                configs.append('component-node name={0}.abs component={0}.abs '
+                                'input={1}'.format(name, cur_descriptor))
             elif operation == 'oldtimeconv':
                 a = []
                 for opt_name in [

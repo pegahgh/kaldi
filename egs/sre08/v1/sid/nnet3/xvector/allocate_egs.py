@@ -262,7 +262,7 @@ def main():
         suggested_num_repeats = int(this_num_egs / len(spk2utt.keys()))
         print("Suggested num_repeats is {0} to have {1} egs per archive, and --num-repeats={2}.".format(
             suggested_num_repeats, this_num_egs, args.num_repeats))
-        num_repeats = max(num_repeats, suggested_num_repeats)
+        num_repeats = max(args.num_repeats, suggested_num_repeats)
         spkrs = num_repeats * list(spk2utt.keys())
         random.shuffle(spkrs)
         for n in range(this_num_egs):

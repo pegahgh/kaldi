@@ -883,6 +883,7 @@ class NaturalGradientAffineComponent: public AffineComponent {
       const std::string &debug_info,
       const CuMatrixBase<BaseFloat> &in_value,
       const CuMatrixBase<BaseFloat> &out_deriv);
+  bool apply_sigmoid; // If true sigmoid function is applied on weights.
 };
 
 

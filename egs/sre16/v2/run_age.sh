@@ -31,7 +31,10 @@ num_delays=3 # number of copies of data with random label shift, augmented to
              # original data.
 label_delay=0.05 # age label are shifted by label_delay % of original age
                 # to left or right by 50%
-regression_regularize=0.0
+regression_regularize=0.001
+use_augment=true # if true, it augment data with different type of noises.
+
+prior_scale=0.7
 . parse_options.sh || exit 1;
 
 if [ $stage -le 0 ] && false; then
@@ -226,9 +229,17 @@ if [ $num_delays -gt 0 ] && [ $stage -le 7 ]; then
 
   rm -rf ${data}_combined_no_sil_ld_*
 fi
-delay_suffix="_ld${label_delay}_${num_delays}"
+
+delay_suffix=""
+if [ $num_delays -gt 0 ]; then
+  delay_suffix="_ld${label_delay}_${num_delays}"
+fi
+if $use_augment; then
+  aug_suffix="_combined_no_sil"
+fi
+
 test_data=$data/${fold_index}/test
-train_data=${data}_combined_no_sil${delay_suffix}
+train_data=${data}${aug_suffix}${delay_suffix}
 if [ $stage -le 7 ]; then
 # exclude test data from training dataset and use new dataset for training
 # all different version of utt from test set are removed from training data.
@@ -236,21 +247,25 @@ if [ $stage -le 7 ]; then
   for utt in `cat $test_data/utt2spk | awk '{print $1}'`; do
     grep $utt $train_data/utt2spk | awk '{print $1}';
   done > $test_data/utt_to_exclude
-  rm -rf $train_data/${fold_index}
-  mkdir -p $train_data/${fold_index}
+  rm -rf $train_data/${fold_index}/train
+  mkdir -p $train_data/${fold_index}/train
   awk '{print $1}' $train_data/utt2spk | utils/filter_scp.pl --exclude $test_data/utt_to_exclude > $train_data/${fold_index}/train_utt_list
   utils/subset_data_dir.sh --utt-list $train_data/${fold_index}/train_utt_list \
     $train_data ${train_data}/${fold_index}/train
+
+  for utt in $(awk '{print $1}' ${data}/${fold_index}/cv/utt2pk); do
+    grep $utt ${train_data}/${fold_index}/train/utt2spk ;
+  done > ${train_data}/${fold_index}/cv_uttlist
 fi
 
 if [ $stage -le 8 ]; then
   local/nnet3/xvector/run_xvector_age.sh --stage $train_stage --train-stage -1 \
-    --num-repeats 100 --frames-per-iter 1600000000 --num-epochs 10 \
-    --regression-regularize 10 \
+    --num-repeats 10 --frames-per-iter 1600000000 --num-epochs 10 \
     --frames-per-iter-diagnostic 100000000 \
     --data ${train_data}/${fold_index}/train --nnet-dir $nnet_dir/${fold_index} \
-    --egs-dir $nnet_dir/${fold_index}/egs
-    --regression-regularize $regression_regularize
+    --egs-dir $nnet_dir/${fold_index}/egs \
+    --regression-regularize $regression_regularize \
+    --valid-uttlist ${train_data}/${fold_index}/cv_uttlist
 fi
 
 if [ $stage -le 9 ]; then
@@ -282,10 +297,11 @@ if [ $stage -le 11 ]; then
   mkdir -p ${logistic_dir}
   mkdir -p ${logistic_dir}/train
   mkdir -p ${logistic_dir}/test
+  mkdir -p ${logistic_dir}/test.rebalanced
   echo "train logistic regression on top of extracted embedding."
   echo "Extract embedding for original training data."
   echo "output-node name=output input=tdnn6.affine" > $nnet_dir/${fold_index}/extract.config.embedding
-
+  #if false; then #100
   sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 6G" --nj 100 \
     --extract-config extract.config.embedding \
     $nnet_dir/${fold_index} data/sre_08_10/${fold_index}/train \
@@ -303,7 +319,6 @@ if [ $stage -le 11 ]; then
       "ark:utils/apply_map.pl -f 2 $age2int < data/sre_08_10/${fold_index}/train/utt2age |" \
       $logistic_mdl > $nnet_dir/${fold_index}/logistic_regression/logistic_regression.log
 
-  echo "$0: find the prior scale vector based on data distribution on test data."
   echo "$0: Evaluate model on training data."
   logistic-regression-eval --apply-log=true ${logistic_mdl} \
     scp:$nnet_dir/${fold_index}/xvectors_train_embedding/xvector.scp \
@@ -343,4 +358,41 @@ if [ $stage -le 11 ]; then
     <(utils/apply_map.pl -f 2 $age2int < data/sre_08_10/1/test/utt2age | awk '{print $2}') | \
     awk '{ sum +=( $1-$2 >= 0 ? $1-$2 : $2-$1 ); n++ } END { if (n > 0) print sum / n; }'`
   echo "mean abs error |y_real - y_predicted| is $mean_abs_error." > ${logistic_dir}/test/mean_abs_error
+  #fi # 100
+####################################
+  echo "$0: create uniform prior to rebalance the model."
+  awk '{print $2}' data/sre_08_10/${fold_index}/train/utt2age | sort -n | uniq -c | \
+    awk -v s=0.0 'BEGIN{printf(" [ ");} {printf("%s ", (1.0/$1)**s); } END{print (" ]"); }' \
+    > $logistic_dir/inv_prior.vec
+
+  sid/balance_priors_to_test.py --test-label data/sre_08_10/${fold_index}/test/utt2age \
+    --train-label data/sre_08_10/${fold_index}/train/utt2age \
+    --prior-scale $prior_scale \
+    --output-dir $logistic_dir/oracle
+  logistic-regression-copy --scale-priors=$logistic_dir/inv_prior.vec \
+    $logistic_mdl ${logistic_dir}/final.uniform_prior.mdl
+
+  echo "$0: Evaluate reballanced model on test data."
+  logistic-regression-eval --apply-log=true $logistic_dir/final.uniform_prior.mdl \
+    scp:$nnet_dir/${fold_index}/xvectors_test_embedding/xvector.scp \
+    ark,t:${logistic_dir}/test.rebalanced/posteriors
+
+  cat ${logistic_dir}/test.rebalanced/posteriors | \
+    awk '{max=$3; argmax=3; for(f=3;f<NF;f++) { if ($f>max)
+                            { max=$f; argmax=f; }}
+                            print $1, (argmax - 3); }' > ${logistic_dir}/test.rebalanced/output
+
+  utils/apply_map.pl -f 2 $age2int < data/sre_08_10/${fold_index}/test/utt2age \
+    > ${logistic_dir}/test.rebalanced/utt2age.mapped
+
+  compute-wer --mode=present --text \
+    "ark:utils/apply_map.pl -f 2 $age2int < data/sre_08_10/${fold_index}/test/utt2age |" \
+    ark:${logistic_dir}/test.rebalanced/output \
+    > ${logistic_dir}/test.rebalanced/wer
+
+  mean_abs_error=`paste <(awk '{print $2}' ${logistic_dir}/test.rebalanced/output) \
+    <(utils/apply_map.pl -f 2 $age2int < data/sre_08_10/1/test/utt2age | awk '{print $2}') | \
+    awk '{ sum +=( $1-$2 >= 0 ? $1-$2 : $2-$1 ); n++ } END { if (n > 0) print sum / n; }'`
+  echo "mean abs error |y_real - y_predicted| is $mean_abs_error." > ${logistic_dir}/test.rebalanced/mean_abs_error
+  echo "mean abs error |y_real - y_predicted| is $mean_abs_error."
 fi

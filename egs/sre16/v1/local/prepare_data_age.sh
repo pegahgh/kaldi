@@ -54,9 +54,9 @@ utils/subset_data_dir.sh --utt-list $out_data/split_info/utt_cv.txt $data $cv_da
 
 # find shift to make zero-based age labels
 age_offset=`cat $data/utt2age | cut -d" " -f2 | sort -n | head -1`
-
+max_age=`cat $data/utt2age | cut -d" " -f2 | sort -n | tail -1`
 # age2label used to map labels to zero-based labels during generating egs.
-for i in `seq 20 70`;do echo $i $[$i-$age_offset]; done > $train_data/label2age || exit 1;
+for i in `seq $age_offset $max_age`;do echo $i $[$i-$age_offset]; done > $train_data/label2age || exit 1;
 
 # prepare utt2num_frames
 #feat-to-len scp:$train_data/feats.scp ark,t:$train_data/utt2frames

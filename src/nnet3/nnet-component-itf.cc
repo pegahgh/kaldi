@@ -163,6 +163,8 @@ Component* Component::NewComponentOfType(const std::string &component_type) {
     ans = new BatchNormComponent();
   } else if (component_type == "TimeHeightConvolutionComponent") {
     ans = new TimeHeightConvolutionComponent();
+  } else if (component_type == "TimeConvolutionComponent") {
+    ans = new TimeConvolutionComponent();
   } else if (component_type == "RestrictedAttentionComponent") {
     ans = new RestrictedAttentionComponent();
   } else if (component_type == "SumBlockComponent") {
