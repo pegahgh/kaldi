@@ -372,7 +372,7 @@ bool TestSimpleComponentModelDerivative(const Component &c,
                                         bool test_derivative) {
   int32 input_dim = c.InputDim(),
       output_dim = c.OutputDim(),
-      num_rows = RandInt(1, 1);
+      num_rows = RandInt(1, 100);
   int32 properties = c.Properties();
   if ((properties & kUpdatableComponent) == 0) {
     // nothing to test.

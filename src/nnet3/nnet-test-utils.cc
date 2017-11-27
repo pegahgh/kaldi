@@ -1418,7 +1418,7 @@ void ComputeExampleComputationRequestSimple(
 static void GenerateRandomComponentConfig(std::string *component_type,
                                           std::string *config) {
 
-  int32 n = RandInt(35, 35);
+  int32 n = RandInt(9, 9);
   BaseFloat learning_rate = 0.001 * RandInt(1, 100);
 
   std::ostringstream os;
@@ -1480,8 +1480,10 @@ static void GenerateRandomComponentConfig(std::string *component_type,
     case 9: {
       *component_type = "AffineComponent";
       int32 input_dim = RandInt(1, 50), output_dim = RandInt(1, 50);
+      bool apply_sigmoid = (RandInt(0, 1) == 0);
       os << "input-dim=" << input_dim << " output-dim=" << output_dim
-         << " learning-rate=" << learning_rate;
+         << " learning-rate=" << learning_rate
+         << " apply-sigmoid=" << (apply_sigmoid ? "false" : "true");
       break;
     }
     case 10: {

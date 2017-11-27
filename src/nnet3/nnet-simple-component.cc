@@ -1136,6 +1136,16 @@ void RectifiedLinearComponent::StoreStats(
   StoreStatsInternal(out_value, &temp_deriv);
 }
 
+int32 AffineComponent::Properties() const {
+  if (apply_sigmoid_) {
+    return kSimpleComponent|kUpdatableComponent|
+        kBackpropNeedsInput|kBackpropAdds;
+  } else {
+    return kSimpleComponent|kUpdatableComponent|kLinearInParameters|
+        kBackpropNeedsInput|kBackpropAdds;
+  }
+}
+
 void AffineComponent::Scale(BaseFloat scale) {
   if (scale == 0.0) {
     // If scale == 0.0 we call SetZero() which will get rid of NaN's and inf's.
@@ -1164,7 +1174,8 @@ void AffineComponent::Add(BaseFloat alpha, const Component &other_in) {
 AffineComponent::AffineComponent(const AffineComponent &component):
     UpdatableComponent(component),
     linear_params_(component.linear_params_),
-    bias_params_(component.bias_params_) { }
+    bias_params_(component.bias_params_),
+    apply_sigmoid_(component.apply_sigmoid_) { }
 
 AffineComponent::AffineComponent(const CuMatrixBase<BaseFloat> &linear_params,
                                  const CuVectorBase<BaseFloat> &bias_params,
@@ -1174,6 +1185,7 @@ AffineComponent::AffineComponent(const CuMatrixBase<BaseFloat> &linear_params,
   SetUnderlyingLearningRate(learning_rate);
   KALDI_ASSERT(linear_params.NumRows() == bias_params.Dim()&&
                bias_params.Dim() != 0);
+  apply_sigmoid_ = false;
 }
 
 void AffineComponent::SetParams(const CuVectorBase<BaseFloat> &bias,
@@ -1198,6 +1210,7 @@ std::string AffineComponent::Info() const {
   stream << UpdatableComponent::Info();
   PrintParameterStats(stream, "linear-params", linear_params_);
   PrintParameterStats(stream, "bias", bias_params_, true);
+  stream << " apply-sigmoid=" << (apply_sigmoid_ ? "true" : "false");
   return stream.str();
 }
 
@@ -1214,7 +1227,8 @@ BaseFloat AffineComponent::DotProduct(const UpdatableComponent &other_in) const 
 }
 
 void AffineComponent::Init(int32 input_dim, int32 output_dim,
-                           BaseFloat param_stddev, BaseFloat bias_stddev) {
+                           BaseFloat param_stddev, BaseFloat bias_stddev,
+                           bool apply_sigmoid) {
   linear_params_.Resize(output_dim, input_dim);
   bias_params_.Resize(output_dim);
   KALDI_ASSERT(output_dim > 0 && input_dim > 0 && param_stddev >= 0.0);
@@ -1222,6 +1236,7 @@ void AffineComponent::Init(int32 input_dim, int32 output_dim,
   linear_params_.Scale(param_stddev);
   bias_params_.SetRandn();
   bias_params_.Scale(bias_stddev);
+  apply_sigmoid_ = apply_sigmoid;
 }
 
 void AffineComponent::Init(std::string matrix_filename) {
@@ -1233,10 +1248,12 @@ void AffineComponent::Init(std::string matrix_filename) {
   bias_params_.Resize(output_dim);
   linear_params_.CopyFromMat(mat.Range(0, output_dim, 0, input_dim));
   bias_params_.CopyColFromMat(mat, input_dim);
+  apply_sigmoid_ = false;
 }
 
 void AffineComponent::InitFromConfig(ConfigLine *cfl) {
-  bool ok = true;
+  bool ok = true,
+    apply_sigmoid = false;
   std::string matrix_filename;
   int32 input_dim = -1, output_dim = -1;
   InitLearningRatesFromConfig(cfl);
@@ -1255,8 +1272,9 @@ void AffineComponent::InitFromConfig(ConfigLine *cfl) {
         bias_stddev = 1.0;
     cfl->GetValue("param-stddev", &param_stddev);
     cfl->GetValue("bias-stddev", &bias_stddev);
+    cfl->GetValue("apply-sigmoid", &apply_sigmoid);
     Init(input_dim, output_dim,
-         param_stddev, bias_stddev);
+         param_stddev, bias_stddev, apply_sigmoid);
   }
   if (cfl->HasUnusedValues())
     KALDI_ERR << "Could not process these elements in initializer: "
@@ -1271,19 +1289,55 @@ void AffineComponent::InitFromConfig(ConfigLine *cfl) {
 void* AffineComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
                                 const CuMatrixBase<BaseFloat> &in,
                                  CuMatrixBase<BaseFloat> *out) const {
+  if (apply_sigmoid_) {
+    // apply sigmoid on bias params
+    CuMatrix<BaseFloat> sigmoid_bias_params(1, bias_params_.Dim());
+    sigmoid_bias_params.CopyRowsFromVec(bias_params_);
+    sigmoid_bias_params.Sigmoid(sigmoid_bias_params);
+    out->CopyRowsFromVec(sigmoid_bias_params.Row(0));
 
-  // No need for asserts as they'll happen within the matrix operations.
-  out->CopyRowsFromVec(bias_params_); // copies bias_params_ to each row
-  // of *out.
-  out->AddMatMat(1.0, in, kNoTrans, linear_params_, kTrans, 1.0);
+    // apply sigmoid on linear params.
+    CuMatrix<BaseFloat> sigmoid_linear_params(linear_params_);
+    sigmoid_linear_params.Sigmoid(linear_params_);
+    out->AddMatMat(1.0, in, kNoTrans, sigmoid_linear_params, kTrans, 1.0);
+  } else {
+    // No need for asserts as they'll happen within the matrix operations.
+    out->CopyRowsFromVec(bias_params_); // copies bias_params_ to each row
+    // of *out.
+    out->AddMatMat(1.0, in, kNoTrans, linear_params_, kTrans, 1.0);
+  }
   return NULL;
 }
 
 void AffineComponent::UpdateSimple(const CuMatrixBase<BaseFloat> &in_value,
                                    const CuMatrixBase<BaseFloat> &out_deriv) {
-  bias_params_.AddRowSumMat(learning_rate_, out_deriv, 1.0);
-  linear_params_.AddMatMat(learning_rate_, out_deriv, kTrans,
-                           in_value, kNoTrans, 1.0);
+  if (apply_sigmoid_) {
+    // update for bias params is out_deriv * sigmoid(bias) * (1-sigmoid(bias))
+    CuVector<BaseFloat> bias_param_update(bias_params_.Dim());
+    CuMatrix<BaseFloat> sigmoid_bias_params(1, bias_params_.Dim());
+    sigmoid_bias_params.CopyRowsFromVec(bias_params_);
+    sigmoid_bias_params.Sigmoid(sigmoid_bias_params);
+    bias_param_update.AddRowSumMat(1.0, out_deriv, 0.0);
+    for (int32 i = 0; i < bias_params_.Dim(); i++)
+      bias_param_update(i) = bias_param_update(i) *
+        sigmoid_bias_params(0, i) * (1.0 - sigmoid_bias_params(0, i));
+    bias_params_.AddVec(learning_rate_, bias_param_update);
+
+    // update for linear params as (out_deriv * in_value) .* [sig(w) * (1-sig(w))]
+    CuMatrix<BaseFloat> linear_params_update(linear_params_.NumRows(),
+                                             linear_params_.NumCols());
+    linear_params_update.AddMatMat(1.0, out_deriv, kTrans, in_value,
+                                             kNoTrans, 0.0);
+    CuMatrix<BaseFloat> sigmoid_linear_params(linear_params_.NumRows(),
+      linear_params_.NumCols());
+    sigmoid_linear_params.Sigmoid(sigmoid_linear_params);
+    linear_params_update.DiffSigmoid(sigmoid_linear_params, linear_params_update);
+    linear_params_.AddMat(learning_rate_, linear_params_update);
+  } else {
+    bias_params_.AddRowSumMat(learning_rate_, out_deriv, 1.0);
+    linear_params_.AddMatMat(learning_rate_, out_deriv, kTrans,
+                             in_value, kNoTrans, 1.0);
+  }
 }
 
 void AffineComponent::Backprop(const std::string &debug_info,
@@ -1300,10 +1354,17 @@ void AffineComponent::Backprop(const std::string &debug_info,
   // add with coefficient 1.0 since property kBackpropAdds is true.
   // If we wanted to add with coefficient 0.0 we'd need to zero the
   // in_deriv, in case of infinities.
-  if (in_deriv)
-    in_deriv->AddMatMat(1.0, out_deriv, kNoTrans, linear_params_, kNoTrans,
-                        1.0);
-
+  if (in_deriv) {
+    if (apply_sigmoid_) {
+      CuMatrix<BaseFloat> sigmoid_linear_params(linear_params_);
+      sigmoid_linear_params.Sigmoid(sigmoid_linear_params);
+      in_deriv->AddMatMat(1.0, out_deriv, kNoTrans, sigmoid_linear_params,
+                          kNoTrans, 1.0);
+    } else {
+      in_deriv->AddMatMat(1.0, out_deriv, kNoTrans, linear_params_, kNoTrans,
+                          1.0);
+    }
+  }
   if (to_update != NULL) {
     // Next update the model (must do this 2nd so the derivatives we propagate
     // are accurate, in case this == to_update_in.)
@@ -1322,7 +1383,13 @@ void AffineComponent::Read(std::istream &is, bool binary) {
   bias_params_.Read(is, binary);
   ExpectToken(is, binary, "<IsGradient>");
   ReadBasicType(is, binary, &is_gradient_);
-  ExpectToken(is, binary, "</AffineComponent>");
+  std::string token;
+  ReadToken(is, binary, &token);
+  if (token == "<ApplySigmoid>") {
+    ReadBasicType(is, binary, &apply_sigmoid_);
+    ReadToken(is, binary, &token);
+  }
+  KALDI_ASSERT(token == "</AffineComponent>");
 }
 
 void AffineComponent::Write(std::ostream &os, bool binary) const {
@@ -1333,6 +1400,8 @@ void AffineComponent::Write(std::ostream &os, bool binary) const {
   bias_params_.Write(os, binary);
   WriteToken(os, binary, "<IsGradient>");
   WriteBasicType(os, binary, is_gradient_);
+  WriteToken(os, binary, "<ApplySigmoid>");
+  WriteBasicType(os, binary, apply_sigmoid_);
   WriteToken(os, binary, "</AffineComponent>");
 }
 
@@ -2502,6 +2571,10 @@ void NaturalGradientAffineComponent::Read(std::istream &is, bool binary) {
     ReadBasicType(is, binary, &temp);
     ReadToken(is, binary, &token);
   }
+  if (token == "<ApplySigmoid>") {
+    ReadBasicType(is, binary, &apply_sigmoid_);
+    ReadToken(is, binary, &token);
+  }
   if (token != "<NaturalGradientAffineComponent>" &&
       token != "</NaturalGradientAffineComponent>")
     KALDI_ERR << "Expected <NaturalGradientAffineComponent> or "
@@ -2516,6 +2589,7 @@ void NaturalGradientAffineComponent::InitFromConfig(ConfigLine *cfl) {
       max_change_per_sample = 0.0;
   int32 input_dim = -1, output_dim = -1, rank_in = 20, rank_out = 80,
       update_period = 4;
+  bool apply_sigmoid = false;
   InitLearningRatesFromConfig(cfl);
   cfl->GetValue("num-samples-history", &num_samples_history);
   cfl->GetValue("alpha", &alpha);
@@ -2528,6 +2602,7 @@ void NaturalGradientAffineComponent::InitFromConfig(ConfigLine *cfl) {
   cfl->GetValue("rank-in", &rank_in);
   cfl->GetValue("rank-out", &rank_out);
   cfl->GetValue("update-period", &update_period);
+  cfl->GetValue("apply-sigmoid", &apply_sigmoid);
 
   if (cfl->GetValue("matrix", &matrix_filename)) {
     Init(rank_in, rank_out, update_period,

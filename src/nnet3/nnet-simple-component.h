@@ -457,11 +457,7 @@ class AffineComponent: public UpdatableComponent {
 
   AffineComponent() { } // use Init to really initialize.
   virtual std::string Type() const { return "AffineComponent"; }
-  virtual int32 Properties() const {
-    return kSimpleComponent|kUpdatableComponent|kLinearInParameters|
-        kBackpropNeedsInput|kBackpropAdds;
-  }
-
+  virtual int32 Properties() const;
 
   virtual void* Propagate(const ComponentPrecomputedIndexes *indexes,
                          const CuMatrixBase<BaseFloat> &in,
@@ -502,7 +498,8 @@ class AffineComponent: public UpdatableComponent {
                   const CuVectorBase<BaseFloat> &bias_params,
                   BaseFloat learning_rate);
   void Init(int32 input_dim, int32 output_dim,
-            BaseFloat param_stddev, BaseFloat bias_stddev);
+            BaseFloat param_stddev, BaseFloat bias_stddev,
+            bool apply_sigmoid=false);
   void Init(std::string matrix_filename);
 
   // This function resizes the dimensions of the component, setting the
@@ -528,6 +525,7 @@ class AffineComponent: public UpdatableComponent {
   const AffineComponent &operator = (const AffineComponent &other); // Disallow.
   CuMatrix<BaseFloat> linear_params_;
   CuVector<BaseFloat> bias_params_;
+  bool apply_sigmoid_; // If true, sigmoid function is applied on weights.
 };
 
 class RepeatedAffineComponent;
@@ -883,7 +881,6 @@ class NaturalGradientAffineComponent: public AffineComponent {
       const std::string &debug_info,
       const CuMatrixBase<BaseFloat> &in_value,
       const CuMatrixBase<BaseFloat> &out_deriv);
-  bool apply_sigmoid; // If true sigmoid function is applied on weights.
 };
 
 
