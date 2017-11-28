@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# This script prepares some things needed by ./train.sh, e.g. it initializes
+# This script prepares some things needed by rnnlm/train_rnnlm.sh, e.g. it initializes
 # the model and ensures we have the split-up integerized data on disk.
 
 cmd=run.pl
@@ -22,7 +22,7 @@ unigram_factor=100.0     # Option used when pruning the LM used for sampling.
 if [ $# != 3 ]; then
   echo "Usage: $0 [options] <text-dir> <rnnlm-config-dir> <rnnlm-dir>"
   echo "Sets up the directory <rnnlm-dir> for RNNLM training as done by"
-  echo "rnnlm/train.sh, and initializes the model."
+  echo "rnnlm/train_rnnlm.sh, and initializes the model."
   echo " <text-dir> is as validated by rnnlm/validate_data_dir.py"
   echo " <rnnlm-config-dir> is as validated by rnnlm/validate_config_dir.sh."
   exit 1
@@ -57,6 +57,8 @@ if [ $stage -le 1 ]; then
       cp $config_dir/$f $dir/config
     done
   fi
+
+  rnnlm/get_special_symbol_opts.py < $dir/config/words.txt > $dir/special_symbol_opts.txt
 fi
 
 if [ $stage -le 2 ]; then
@@ -84,7 +86,7 @@ if [ $stage -le 3 ]; then
     else
       unigram_opt=
     fi
-    rnnlm/get_word_features.py $unigram_opt \
+    rnnlm/get_word_features.py $unigram_opt --treat-as-bos='#0' \
       $dir/config/words.txt $dir/config/features.txt >$dir/word_feats.txt
   else
     [ -f $dir/word_feats.txt ] && rm $dir/word_feats.txt
@@ -156,12 +158,14 @@ if [ $stage -le 7 ]; then
     text_files=$(for n in $(seq $num_splits); do echo -n $dir/text/$n.txt ''; done)
     vocab_size=$(tail -n 1 $dir/config/words.txt | awk '{print $NF + 1}')
 
+    special_symbol_opts=$(cat $dir/special_symbol_opts.txt)
+
     # this prints some nontrivial log information, so run using '$cmd' to ensure
     # the output gets saved.
     # ***NOTE*** we will likely later have to pass in options to this program to control
     # the size of the sampling LM.
     $cmd $dir/log/prepare_sampling_lm.log \
-         rnnlm-get-sampling-lm --unigram-factor=$unigram_factor \
+         rnnlm-get-sampling-lm --unigram-factor=$unigram_factor $special_symbol_opts \
               --vocab-size=$vocab_size  "cat $text_files|" $dir/sampling.lm
     echo "$0: done estimating LM for sampling."
   else

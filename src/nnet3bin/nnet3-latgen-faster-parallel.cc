@@ -140,8 +140,6 @@ int main(int argc, char *argv[]) {
       timer.Reset();
 
       {
-        LatticeFasterDecoder decoder(*decode_fst, config);
-
         for (; !feature_reader.Done(); feature_reader.Next()) {
           std::string utt = feature_reader.Key();
           const Matrix<BaseFloat> &features (feature_reader.Value());

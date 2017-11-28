@@ -20,11 +20,12 @@ num_epochs=100  # maximum number of epochs to train.  later we
                 # may find a stopping criterion.
 initial_effective_lrate=0.001
 final_effective_lrate=0.0001
+embedding_l2=0.005
 embedding_lrate_factor=0.1  # the embedding learning rate is the
                             # nnet learning rate times this factor.
 cmd=run.pl  # you might want to set this to queue.pl
 
-# some options passed into nnet3-get-egs, relating to sampling.
+# some options passed into rnnlm-get-egs, relating to sampling.
 num_samples=512
 sample_group_size=2  # see rnnlm-get-egs
 num_egs_threads=10  # number of threads used for sampling, if we're using
@@ -55,7 +56,8 @@ set -e
 
 for f in $dir/config/{words,data_weights,oov}.txt \
               $dir/text/1.txt $dir/text/dev.txt $dir/0.raw \
-              $dir/text/info/num_splits $dir/text/info/num_repeats; do
+              $dir/text/info/num_splits $dir/text/info/num_repeats \
+              $dir/special_symbol_opts.txt; do
   [ ! -f $f ] && echo "$0: expected $f to exist" && exit 1
 done
 
@@ -64,9 +66,11 @@ num_splits=$(cat $dir/text/info/num_splits)
 num_repeats=$(cat $dir/text/info/num_repeats)
 text_files=$(for n in $(seq $num_splits); do echo $dir/text/$n.txt; done)
 vocab_size=$(tail -n 1 $dir/config/words.txt | awk '{print $NF + 1}')
+embedding_type=
 
 if [ -f $dir/feat_embedding.0.mat ]; then
   sparse_features=true
+  embedding_type=feat
   if [ -f $dir/word_embedding.0.mat ]; then
     echo "$0: error: $dir/feat_embedding.0.mat and $dir/word_embedding.0.mat both exist."
     exit 1;
@@ -74,6 +78,7 @@ if [ -f $dir/feat_embedding.0.mat ]; then
   ! [ -f $dir/word_feats.txt ] && echo "$0: expected $0/word_feats.txt to exist" && exit 1;
 else
   sparse_features=false
+  embedding_type=word
   ! [ -f $dir/word_embedding.0.mat ] && \
     echo "$0: expected $dir/word_embedding.0.mat to exist" && exit 1
 fi
@@ -90,7 +95,7 @@ num_iters=$[($num_splits_to_process*2)/($num_jobs_initial+$num_jobs_final)]
 
 
 # this string will combine options and arguments.
-train_egs_args="--vocab-size=$vocab_size"
+train_egs_args="--vocab-size=$vocab_size $(cat $dir/special_symbol_opts.txt)"
 if [ -f $dir/sampling.lm ]; then
   # we are doing sampling.
   train_egs_args="$train_egs_args --num-samples=$num_samples --sample-group-size=$sample_group_size --num-threads=$num_egs_threads $dir/sampling.lm"
@@ -136,7 +141,8 @@ while [ $x -lt $num_iters ]; do
     else gpu_opt=''; queue_gpu_opt=''; fi
     [ -f $dir/.error ] && rm $dir/.error
     $cmd $queue_gpu_opt $dir/log/compute_prob.$x.log \
-       rnnlm-get-egs --vocab-size=$vocab_size $dir/text/dev.txt ark:- \| \
+       rnnlm-get-egs $(cat $dir/special_symbol_opts.txt) \
+                     --vocab-size=$vocab_size $dir/text/dev.txt ark:- \| \
        rnnlm-compute-prob $gpu_opt $dir/$x.raw "$word_embedding" ark:- || touch $dir/.error &
 
     if [ $x -gt 0 ]; then
@@ -164,9 +170,9 @@ while [ $x -lt $num_iters ]; do
         src_rnnlm="nnet3-copy --learning-rate=$this_learning_rate $dir/$x.raw -|"
         if $sparse_features; then
           sparse_opt="--read-sparse-word-features=$dir/word_feats.txt";
-          embedding_type=feat_embedding
+          embedding_type=feat
         else
-          sparse_opt=''; embedding_type=word_embedding
+          sparse_opt=''; embedding_type=word
         fi
         if $use_gpu; then gpu_opt="--use-gpu=yes"; queue_gpu_opt="--gpu 1";
         else gpu_opt="--use-gpu=no"; queue_gpu_opt=""; fi
@@ -174,34 +180,39 @@ while [ $x -lt $num_iters ]; do
         else dest_number=$[x+1]; fi
         # in the normal case $repeated data will be just one copy.
         repeated_data=$(for n in $(seq $num_repeats); do echo -n $dir/text/$split.txt ''; done)
-
+        
+        rnnlm_l2_factor=$(perl -e "print (1.0/$this_num_jobs);")
+        embedding_l2_regularize=$(perl -e "print ($embedding_l2/$this_num_jobs);")
 
         # Run the training job or jobs.
         $cmd $queue_gpu_opt $dir/log/train.$x.$n.log \
            rnnlm-train \
              --rnnlm.max-param-change=$rnnlm_max_change \
+             --rnnlm.l2_regularize_factor=$rnnlm_l2_factor \
              --embedding.max-param-change=$embedding_max_change \
              --embedding.learning-rate=$embedding_lrate \
+             --embedding.l2_regularize=$embedding_l2_regularize \
              $sparse_opt $gpu_opt \
              --read-rnnlm="$src_rnnlm" --write-rnnlm=$dir/$dest_number.raw \
-             --read-embedding=$dir/$embedding_type.$x.mat \
-             --write-embedding=$dir/$embedding_type.$dest_number.mat \
+             --read-embedding=$dir/${embedding_type}_embedding.$x.mat \
+             --write-embedding=$dir/${embedding_type}_embedding.$dest_number.mat \
              "ark,bg:cat $repeated_data | rnnlm-get-egs --srand=$num_splits_processed $train_egs_args - ark:- |" || touch $dir/.train_error &
       done
       wait # wait for just the training jobs.
       [ -f $dir/.train_error ] && \
         echo "$0: failure on iteration $x of training, see $dir/log/train.$x.*.log for details." && exit 1
       if [ $this_num_jobs -gt 1 ]; then
-        # average the models and the embedding matrces.  Use run.pl as we don't
+        # average the models and the embedding matrces.  Use run.pl as we don\'t
         # want this to wait on the queue (if there is a queue).
         src_models=$(for n in $(seq $this_num_jobs); do echo $dir/$[x+1].$n.raw; done)
-        src_matrices=$(for n in $(seq $this_num_jobs); do echo $dir/${embedding_type}.$[x+1].$n.mat; done)
+        src_matrices=$(for n in $(seq $this_num_jobs); do echo $dir/${embedding_type}_embedding.$[x+1].$n.mat; done)
         run.pl $dir/log/average.$[x+1].log \
           nnet3-average $src_models $dir/$[x+1].raw '&&' \
-          matrix-sum --average=true $src_matrices $dir/$embedding_type.$[x+1].mat
+          matrix-sum --average=true $src_matrices $dir/${embedding_type}_embedding.$[x+1].mat
       fi
     )
 
+    num_splits_processed=$[num_splits_processed+this_num_jobs]
     # the error message below is not that informative, but $cmd will
     # have printed a more specific one.
     [ -f $dir/.error ] && echo "$0: error with diagnostics on iteration $x of training" && exit 1;
@@ -216,7 +227,12 @@ if [ $stage -le $num_iters ]; then
   # dev-set probability) as the final model.
   best_iter=$(rnnlm/get_best_model.py $dir)
   echo "$0: best iteration (out of $num_iters) was $best_iter, linking it to final iteration."
-  ln -sf $embedding_type.$best_iter.mat $dir/$embedding_type.final.mat
+  train_best_log=$dir/log/train.$best_iter.1.log
+  ppl_train=`grep 'Overall objf' $train_best_log | awk '{printf("%.1f",exp(-$10))}'`
+  dev_best_log=$dir/log/compute_prob.$best_iter.log
+  ppl_dev=`grep 'Overall objf' $dev_best_log | awk '{printf("%.1f",exp(-$NF))}'`
+  echo "$0: train/dev perplexity was $ppl_train / $ppl_dev."
+  ln -sf ${embedding_type}_embedding.$best_iter.mat $dir/${embedding_type}_embedding.final.mat
   ln -sf $best_iter.raw $dir/final.raw
 fi
 

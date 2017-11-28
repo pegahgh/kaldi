@@ -221,9 +221,9 @@ void CuDevice::FinalizeActiveGpu() {
     // Remember the id of active GPU
     active_gpu_id_ = act_gpu_id; // CuDevice::Enabled() is true from now on
     // Initialize the CUBLAS
-    CU_SAFE_CALL(cublasCreate(&handle_));
+    CUBLAS_SAFE_CALL(cublasCreate(&handle_));
     // Initialize the cuSPARSE
-    CU_SAFE_CALL(cusparseCreate(&cusparse_handle_));
+    CUSPARSE_SAFE_CALL(cusparseCreate(&cusparse_handle_));
 
     // Notify user which GPU is finally used
     char name[128];

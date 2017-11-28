@@ -21,6 +21,7 @@
 // See the Apache 2 License for the specific language governing permissions and
 // limitations under the License.
 
+#include "base/kaldi-utils.h"
 #include "matrix/kaldi-matrix.h"
 #include "matrix/sp-matrix.h"
 #include "matrix/jama-svd.h"
@@ -820,13 +821,14 @@ void Matrix<Real>::Resize(const MatrixIndexT rows,
   // resize_type == kCopyData.
   if (resize_type == kCopyData) {
     if (this->data_ == NULL || rows == 0) resize_type = kSetZero;  // nothing to copy.
-    else if (rows == this->num_rows_ && cols == this->num_cols_) { return; } // nothing to do.
+    else if (rows == this->num_rows_ && cols == this->num_cols_ &&
+	     (stride_type == kDefaultStride || this->stride_ == this->num_cols_)) { return; } // nothing to do.
     else {
       // set tmp to a matrix of the desired size; if new matrix
       // is bigger in some dimension, zero it.
       MatrixResizeType new_resize_type =
           (rows > this->num_rows_ || cols > this->num_cols_) ? kSetZero : kUndefined;
-      Matrix<Real> tmp(rows, cols, new_resize_type);
+      Matrix<Real> tmp(rows, cols, new_resize_type, stride_type);
       MatrixIndexT rows_min = std::min(rows, this->num_rows_),
           cols_min = std::min(cols, this->num_cols_);
       tmp.Range(0, rows_min, 0, cols_min).
@@ -1486,7 +1488,8 @@ void Matrix<Real>::Read(std::istream & is, bool binary, bool add) {
     std::string token;
     ReadToken(is, binary, &token);
     if (token != my_token) {
-      specific_error << ": Expected token " << my_token << ", got " << token;
+      specific_error << ": Expected token " << my_token
+                     << ", got " << StringToReadable(token);
       goto bad;
     }
     int32 rows, cols;
@@ -1519,7 +1522,8 @@ void Matrix<Real>::Read(std::istream & is, bool binary, bool add) {
     // }
     if (str == "[]") { Resize(0, 0); return; } // Be tolerant of variants.
     else if (str != "[") {
-      specific_error << ": Expected \"[\", got \"" << str << '"';
+      specific_error << ": Expected \"[\", got \""
+                     << StringToReadable(str) << '"';
       goto bad;
     }
     // At this point, we have read "[".
@@ -1590,7 +1594,8 @@ void Matrix<Real>::Read(std::istream & is, bool binary, bool add) {
           cur_row->push_back(std::numeric_limits<Real>::quiet_NaN());
           KALDI_WARN << "Reading NaN value into matrix.";
         } else {
-          specific_error << "Expecting numeric matrix data, got " << str;
+          specific_error << "Expecting numeric matrix data, got "
+                         << StringToReadable(str);
           goto cleanup;
         }
       }
