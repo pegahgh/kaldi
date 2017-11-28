@@ -434,6 +434,14 @@ void ApplyL2Regularization(const Nnet &nnet,
                            BaseFloat l2_regularize_scale,
                            Nnet *delta_nnet);
 
+/**
+  This function is used as part of the regular training workflow, after
+  UpdateNnetWithMaxChange().
+  For each Updatable component c in the neural net, it makes updatable params
+  less than min_param_value_ to be equal to this value and also params larger
+  than max_param_value_ to max_param_value_.
+ */
+bool PositiveUpdatableWeights(Nnet *nnet);
 
 /** This utility function can be used to obtain the number of distinct 'n'
     values in a training example.  This is the number of examples

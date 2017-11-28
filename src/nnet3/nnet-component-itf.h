@@ -448,7 +448,10 @@ class UpdatableComponent: public Component {
   // If these defaults are changed, the defaults in
   // InitLearningRatesFromConfig() should be changed too.
   UpdatableComponent(): learning_rate_(0.001), learning_rate_factor_(1.0),
-                        l2_regularize_(0.0), is_gradient_(false),
+                        l2_regularize_(0.0),
+                        min_param_value_(std::numeric_limits<float>::lowest()),
+                        max_param_value_(std::numeric_limits<float>::max()),
+                        is_gradient_(false),
                         max_change_(0.0) { }
 
   virtual ~UpdatableComponent() { }
@@ -461,6 +464,10 @@ class UpdatableComponent: public Component {
   /// This function is to be used in testing.  It adds unit noise times "stddev"
   /// to the parameters of the component.
   virtual void PerturbParams(BaseFloat stddev) = 0;
+
+  /// This function applies min and max parameter value contraints by
+  /// mapping parameter weight to range [min_param_value_, max_param_value]
+  virtual void ApplyMinMaxToWeights() = 0;
 
   /// Sets the learning rate of gradient descent- gets multiplied by
   /// learning_rate_factor_.
@@ -508,6 +515,10 @@ class UpdatableComponent: public Component {
   /// of the training workflow.
   BaseFloat L2Regularization() const { return l2_regularize_; }
 
+  BaseFloat MaxParamValue() const { return max_param_value_; }
+
+  BaseFloat MinParamValue() const { return min_param_value_; }
+
   virtual std::string Info() const;
 
   /// The following new virtual function returns the total dimension of
@@ -548,6 +559,10 @@ class UpdatableComponent: public Component {
                                    ///value will be scaled by this factor.
   BaseFloat l2_regularize_;  ///< L2 regularization constant.  See comment for
                              ///< the L2Regularization() for details.
+  BaseFloat max_param_value_; /// max parameter value constant, the parameters mapped to
+                              /// this value, if they get larger than max_param_value_.
+  BaseFloat min_param_value_; /// min parameter value constant. The parameters smaller than
+                              /// min_param_value_ are scaled to min_param_value.
   bool is_gradient_;  ///< True if this component is to be treated as a gradient rather
                       ///< than as parameters.  Its main effect is that we disable
                       ///< any natural-gradient update and just compute the standard

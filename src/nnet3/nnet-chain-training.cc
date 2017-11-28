@@ -114,6 +114,10 @@ void NnetChainTrainer::TrainInternal(const NnetChainExample &eg,
   bool success = UpdateNnetWithMaxChange(*delta_nnet_,
       nnet_config.max_param_change, 1.0, 1.0 - nnet_config.momentum, nnet_,
       &num_max_change_per_component_applied_, &num_max_change_global_applied_);
+
+  // impose positivity for AffineComponent max(W, 0)
+  //PositiveUpdatableWeights(nnet_);
+
   // Scales delta_nnet
   if (success)
     ScaleNnet(nnet_config.momentum, delta_nnet_);

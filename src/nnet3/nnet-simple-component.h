@@ -481,6 +481,7 @@ class AffineComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights();
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -574,6 +575,7 @@ class BlockAffineComponent : public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -637,6 +639,7 @@ class RepeatedAffineComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -1386,6 +1389,7 @@ class PerElementScaleComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -1471,6 +1475,7 @@ class PerElementOffsetComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -1540,6 +1545,7 @@ class ConstantFunctionComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -1752,6 +1758,7 @@ class ConvolutionComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -1965,6 +1972,7 @@ class LstmNonlinearityComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -2151,6 +2159,7 @@ class PowerComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -2229,6 +2238,7 @@ class GmmComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
@@ -2683,6 +2693,7 @@ class CompositeComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;

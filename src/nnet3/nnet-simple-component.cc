@@ -1136,6 +1136,28 @@ void RectifiedLinearComponent::StoreStats(
   StoreStatsInternal(out_value, &temp_deriv);
 }
 
+
+void AffineComponent::ApplyMinMaxToWeights() {
+  BaseFloat max_param_value = MaxParamValue(),
+    min_param_value = MinParamValue();
+  if (min_param_value > std::numeric_limits<float>::lowest()) {
+    linear_params_.ApplyFloor(min_param_value);
+    bias_params_.ApplyFloor(min_param_value);
+  }
+
+  if (max_param_value < std::numeric_limits<float>::max()) {
+    // apply min(max_value, w) as max(-max_value, -w) to use ApplyFloor function.
+    linear_params_.Scale(-1.0);
+    linear_params_.ApplyFloor(-1.0 * max_param_value);
+    linear_params_.Scale(-1.0);
+
+    // apply min(max_value, w) to bias_params
+    bias_params_.Scale(-1.0);
+    bias_params_.ApplyFloor(-1.0 * max_param_value);
+    linear_params_.Scale(-1.0);
+  }
+}
+
 int32 AffineComponent::Properties() const {
   if (apply_sigmoid_) {
     return kSimpleComponent|kUpdatableComponent|
@@ -1166,6 +1188,8 @@ void AffineComponent::Resize(int32 input_dim, int32 output_dim) {
 void AffineComponent::Add(BaseFloat alpha, const Component &other_in) {
   const AffineComponent *other =
       dynamic_cast<const AffineComponent*>(&other_in);
+
+  KALDI_ASSERT(apply_sigmoid_ == other->apply_sigmoid_);
   KALDI_ASSERT(other != NULL);
   linear_params_.AddMat(alpha, other->linear_params_);
   bias_params_.AddVec(alpha, other->bias_params_);
@@ -1229,6 +1253,10 @@ BaseFloat AffineComponent::DotProduct(const UpdatableComponent &other_in) const 
 void AffineComponent::Init(int32 input_dim, int32 output_dim,
                            BaseFloat param_stddev, BaseFloat bias_stddev,
                            bool apply_sigmoid) {
+  BaseFloat max_param_value = MaxParamValue(),
+    min_param_value = MinParamValue();
+  KALDI_ASSERT(param_stddev < std::abs(max_param_value) &&
+    param_stddev < std::abs(min_param_value));
   linear_params_.Resize(output_dim, input_dim);
   bias_params_.Resize(output_dim);
   KALDI_ASSERT(output_dim > 0 && input_dim > 0 && param_stddev >= 0.0);
@@ -2454,6 +2482,8 @@ void ConstantFunctionComponent::Scale(BaseFloat scale) {
     }
   }
 }
+
+
 
 void ConstantFunctionComponent::Add(BaseFloat alpha, const Component &other_in) {
   if (is_updatable_) {
