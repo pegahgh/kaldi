@@ -5975,6 +5975,29 @@ void GmmComponent::Update(const std::string &debug_info,
   }
 }
 
+void* ExpComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
+                             const CuMatrixBase<BaseFloat> &in,
+                             CuMatrixBase<BaseFloat> *out) const {
+  // Applied exp function
+  out->CopyFromMat(in);
+  out->ApplyExp();
+  return NULL;
+}
+
+void ExpComponent::Backprop(const std::string &debug_info,
+                            const ComponentPrecomputedIndexes *indexes,
+                            const CuMatrixBase<BaseFloat> &,//in_value,
+                            const CuMatrixBase<BaseFloat> &out_value,
+                            const CuMatrixBase<BaseFloat> &out_deriv,
+                            void *memo,
+                            Component *to_update,
+                            CuMatrixBase<BaseFloat> *in_deriv) const {
+  if (in_deriv != NULL) {
+    in_deriv->CopyFromMat(out_value);
+    in_deriv->MulElements(out_deriv);
+  }
+}
+
 std::string LogComponent::Info() const {
   std::stringstream stream;
   stream << NonlinearComponent::Info()

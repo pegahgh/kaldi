@@ -2601,6 +2601,33 @@ class GmmComponent: public UpdatableComponent {
   const GmmComponent &operator = (const GmmComponent &other);
 };
 
+// The ExpComponent outputs the exp of input values as y = Exp(x)
+class ExpComponent: public NonlinearComponent {
+ public:
+  explicit ExpComponent(const ExpComponent &other):
+    NonlinearComponent(other) { }
+  ExpComponent() { }
+  virtual std::string Type() const { return "ExpComponent"; }
+  virtual int32 Properties() const {
+    return kSimpleComponent|kBackpropNeedsOutput|kStoresStats;
+  }
+  virtual void* Propagate(const ComponentPrecomputedIndexes *indexes,
+                          const CuMatrixBase<BaseFloat> &in,
+                          CuMatrixBase<BaseFloat> *out) const;
+  virtual void Backprop(const std::string &debug_info,
+                        const ComponentPrecomputedIndexes *indexes,
+                        const CuMatrixBase<BaseFloat> &,
+                        const CuMatrixBase<BaseFloat> &out_value,
+                        const CuMatrixBase<BaseFloat> &,
+                        void *memo,
+                        Component *to_update,
+                        CuMatrixBase<BaseFloat> *in_deriv) const;
+
+  virtual Component* Copy() const { return new ExpComponent(*this); }
+ private:
+  ExpComponent &operator = (const ExpComponent &other); // Disallow.
+};
+
 // The LogComponent outputs the log of input values as y = Log(max(x, epsi))
 class LogComponent: public NonlinearComponent {
  public:
