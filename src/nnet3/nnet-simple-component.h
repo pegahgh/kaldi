@@ -999,7 +999,7 @@ class LinearComponent: public UpdatableComponent {
   explicit LinearComponent(const LinearComponent &other);
 
   explicit LinearComponent(const CuMatrix<BaseFloat> &params);
- private:
+ protected:
 
   // disallow assignment operator.
   LinearComponent &operator= (
@@ -1013,6 +1013,45 @@ class LinearComponent: public UpdatableComponent {
   OnlineNaturalGradient preconditioner_out_;
 };
 
+class SigmoidLinearComponent: public LinearComponent {
+ public:
+  virtual std::string Type() const { return "SigmoidLinearComponent"; }
+  virtual int32 Properties() const {
+    return kSimpleComponent|kUpdatableComponent|kBackpropNeedsInput|
+        kPropagateAdds|kBackpropAdds;
+  }
+
+  virtual void* Propagate(const ComponentPrecomputedIndexes *indexes,
+                         const CuMatrixBase<BaseFloat> &in,
+                         CuMatrixBase<BaseFloat> *out) const;
+  virtual void Backprop(const std::string &debug_info,
+                        const ComponentPrecomputedIndexes *indexes,
+                        const CuMatrixBase<BaseFloat> &in_value,
+                        const CuMatrixBase<BaseFloat> &, // out_value
+                        const CuMatrixBase<BaseFloat> &out_deriv,
+                        void *memo,
+                        Component *to_update,
+                        CuMatrixBase<BaseFloat> *in_deriv) const;
+  // this constructor does not really initialize, use InitFromConfig() or Read().
+  SigmoidLinearComponent() { use_natural_gradient_ = false; }
+  void InitFromConfig(ConfigLine *cfl);
+  virtual std::string Info() const;
+  virtual Component* Copy() const;
+  // copy constructor
+  explicit SigmoidLinearComponent(const SigmoidLinearComponent &other):
+    LinearComponent(other) { use_natural_gradient_ = false; };
+
+  //explicit SigmoidLinearComponent(const CuMatrix<BaseFloat> &params);
+  virtual void Read(std::istream &is, bool binary);
+  virtual void Write(std::ostream &os, bool binary) const;
+ protected:
+  void UpdateSimple(const CuMatrixBase<BaseFloat> &in_value,
+                    const CuMatrixBase<BaseFloat> &out_deriv,
+                    const CuMatrixBase<BaseFloat> &params);
+  // disallow assignment operator.
+  SigmoidLinearComponent &operator= (
+      const SigmoidLinearComponent&);
+};
 
 /// FixedAffineComponent is an affine transform that is supplied
 /// at network initialization time and is not trainable.

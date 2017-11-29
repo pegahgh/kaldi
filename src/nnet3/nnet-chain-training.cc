@@ -116,7 +116,7 @@ void NnetChainTrainer::TrainInternal(const NnetChainExample &eg,
       &num_max_change_per_component_applied_, &num_max_change_global_applied_);
 
   // impose positivity for AffineComponent max(W, 0)
-  //PositiveUpdatableWeights(nnet_);
+  PositiveUpdatableWeights(nnet_);
 
   // Scales delta_nnet
   // Scale down the batchnorm stats (keeps them fresh... this affects what

@@ -1205,16 +1205,14 @@ void AffineComponent::ApplyMinMaxToWeights() {
   }
 
   if (max_param_value < std::numeric_limits<float>::max()) {
-    // apply min(max_value, w) as max(-max_value, -w) to use ApplyFloor function.
-    linear_params_.Scale(-1.0);
-    linear_params_.ApplyFloor(-1.0 * max_param_value);
-    linear_params_.Scale(-1.0);
-
-    // apply min(max_value, w) to bias_params
-    bias_params_.Scale(-1.0);
-    bias_params_.ApplyFloor(-1.0 * max_param_value);
-    linear_params_.Scale(-1.0);
+    // apply min(max_value, w)
+    linear_params_.ApplyCeiling(max_param_value);
+    bias_params_.ApplyCeiling(max_param_value);
   }
+  KALDI_ASSERT(linear_params_.Max() <= max_param_value &&
+               linear_params_.Min() >= min_param_value &&
+               bias_params_.Max() <= max_param_value &&
+               bias_params_.Min() >= min_param_value);
 }
 
 int32 AffineComponent::Properties() const {
@@ -1309,8 +1307,7 @@ void AffineComponent::Init(int32 input_dim, int32 output_dim,
                            bool apply_sigmoid) {
   BaseFloat max_param_value = MaxParamValue(),
     min_param_value = MinParamValue();
-  KALDI_ASSERT(param_stddev < std::abs(max_param_value) &&
-    param_stddev < std::abs(min_param_value));
+  KALDI_ASSERT(param_stddev < std::abs(max_param_value));
   linear_params_.Resize(output_dim, input_dim);
   bias_params_.Resize(output_dim);
   KALDI_ASSERT(output_dim > 0 && input_dim > 0 && param_stddev >= 0.0);
@@ -3193,6 +3190,195 @@ void NaturalGradientAffineComponent::FreezeNaturalGradient(bool freeze) {
   preconditioner_out_.Freeze(freeze);
 }
 
+void SigmoidLinearComponent::Read(std::istream &is, bool binary) {
+  std::string token = ReadUpdatableCommon(is, binary);
+  KALDI_ASSERT(token == "");
+  ExpectToken(is, binary, "<Params>");
+  params_.Read(is, binary);
+  ExpectToken(is, binary, "<UseNaturalGradient>");
+  ReadBasicType(is, binary, &use_natural_gradient_);
+
+  // Read various natural-gradient-related configs.
+  int32 rank_in,  rank_out, update_period;
+  BaseFloat alpha, num_samples_history;
+  ExpectToken(is, binary, "<RankInOut>");
+  ReadBasicType(is, binary, &rank_in);
+  ReadBasicType(is, binary, &rank_out);
+  ExpectToken(is, binary, "<Alpha>");
+  ReadBasicType(is, binary, &alpha);
+  ExpectToken(is, binary, "<NumSamplesHistory>");
+  ReadBasicType(is, binary, &num_samples_history);
+  ExpectToken(is, binary, "<UpdatePeriod>");
+  ReadBasicType(is, binary, &update_period);
+
+  preconditioner_in_.SetAlpha(alpha);
+  preconditioner_out_.SetAlpha(alpha);
+  preconditioner_in_.SetRank(rank_in);
+  preconditioner_out_.SetRank(rank_out);
+  preconditioner_in_.SetNumSamplesHistory(num_samples_history);
+  preconditioner_out_.SetNumSamplesHistory(num_samples_history);
+  preconditioner_in_.SetUpdatePeriod(update_period);
+  preconditioner_out_.SetUpdatePeriod(update_period);
+
+  ExpectToken(is, binary, "</SigmoidLinearComponent>");
+}
+
+void SigmoidLinearComponent::Write(std::ostream &os,
+                            bool binary) const {
+  WriteUpdatableCommon(os, binary);  // Write the opening tag and learning rate
+  WriteToken(os, binary, "<Params>");
+  params_.Write(os, binary);
+  WriteToken(os, binary, "<UseNaturalGradient>");
+  WriteBasicType(os, binary, use_natural_gradient_);
+
+  int32 rank_in = preconditioner_in_.GetRank(),
+      rank_out = preconditioner_out_.GetRank(),
+      update_period = preconditioner_in_.GetUpdatePeriod();
+  BaseFloat alpha = preconditioner_in_.GetAlpha(),
+      num_samples_history = preconditioner_in_.GetNumSamplesHistory();
+  WriteToken(os, binary, "<RankInOut>");
+  WriteBasicType(os, binary, rank_in);
+  WriteBasicType(os, binary, rank_out);
+  WriteToken(os, binary, "<Alpha>");
+  WriteBasicType(os, binary, alpha);
+  WriteToken(os, binary, "<NumSamplesHistory>");
+  WriteBasicType(os, binary, num_samples_history);
+  WriteToken(os, binary, "<UpdatePeriod>");
+  WriteBasicType(os, binary, update_period);
+  WriteToken(os, binary, "</SigmoidLinearComponent>");
+}
+
+void SigmoidLinearComponent::InitFromConfig(ConfigLine *cfl) {
+  bool ok = true;
+  std::string matrix_filename;
+  is_gradient_ = false;  // not configurable; there's no reason you'd want this
+
+  InitLearningRatesFromConfig(cfl);
+
+  int32 input_dim = -1, output_dim = -1;
+  if (cfl->GetValue("matrix", &matrix_filename)) {
+    ReadKaldiObject(matrix_filename, &params_); // will abort on failure.
+    KALDI_ASSERT(params_.NumRows() != 0);
+    if (cfl->GetValue("input-dim", &input_dim))
+      KALDI_ASSERT(input_dim == InputDim() &&
+                   "input-dim mismatch vs. matrix.");
+    if (cfl->GetValue("output-dim", &output_dim))
+      KALDI_ASSERT(output_dim == OutputDim() &&
+                   "output-dim mismatch vs. matrix.");
+  } else {
+    ok = ok && cfl->GetValue("input-dim", &input_dim);
+    ok = ok && cfl->GetValue("output-dim", &output_dim);
+    if (!ok)
+      KALDI_ERR << "Bad initializer " << cfl->WholeLine();
+    BaseFloat param_stddev = std::min(0.49, 1.0 / std::sqrt(input_dim));
+    cfl->GetValue("param-stddev", &param_stddev);
+    params_.Resize(output_dim, input_dim);
+    KALDI_ASSERT(output_dim > 0 && input_dim > 0 &&
+      param_stddev >= 0.0);
+    BaseFloat logit_param_stddev = std::log((param_stddev + 0.5) / (0.5 - param_stddev));
+    params_.SetRandn();
+    params_.Scale(logit_param_stddev);
+  }
+  // Read various natural-gradient-related configs.
+  int32 rank_in = 20, rank_out = 80, update_period = 4;
+  BaseFloat alpha = 4.0,
+      num_samples_history = 2000.0;
+
+  cfl->GetValue("num-samples-history", &num_samples_history);
+  cfl->GetValue("alpha", &alpha);
+  cfl->GetValue("rank-in", &rank_in);
+  cfl->GetValue("rank-out", &rank_out);
+  cfl->GetValue("update-period", &update_period);
+
+  preconditioner_in_.SetAlpha(alpha);
+  preconditioner_out_.SetAlpha(alpha);
+  preconditioner_in_.SetRank(rank_in);
+  preconditioner_out_.SetRank(rank_out);
+  preconditioner_in_.SetNumSamplesHistory(num_samples_history);
+  preconditioner_out_.SetNumSamplesHistory(num_samples_history);
+  preconditioner_in_.SetUpdatePeriod(update_period);
+  preconditioner_out_.SetUpdatePeriod(update_period);
+
+  if (cfl->HasUnusedValues())
+    KALDI_ERR << "Could not process these elements in initializer: "
+              << cfl->UnusedValues();
+}
+
+void* SigmoidLinearComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
+                             const CuMatrixBase<BaseFloat> &in,
+                             CuMatrixBase<BaseFloat> *out) const {
+  // apply sigmoid on linear params.
+  CuMatrix<BaseFloat> sigmoid_linear_params(params_.NumRows(), params_.NumCols());
+  sigmoid_linear_params.Sigmoid(params_);
+  out->AddMatMat(1.0, in, kNoTrans, sigmoid_linear_params, kTrans, 1.0);
+  return NULL;
+}
+
+void SigmoidLinearComponent::UpdateSimple(const CuMatrixBase<BaseFloat> &in_value,
+                                   const CuMatrixBase<BaseFloat> &out_deriv,
+                                   const CuMatrixBase<BaseFloat> &params) {
+  // update for linear params as (out_deriv * in_value) .* [sig(w) * (1-sig(w))]
+  CuMatrix<BaseFloat> linear_params_update(params.NumRows(),
+                                           params.NumCols());
+  linear_params_update.AddMatMat(1.0, out_deriv, kTrans, in_value,
+                                           kNoTrans, 0.0);
+  CuMatrix<BaseFloat> sigmoid_linear_params(params.NumRows(),
+    params.NumCols());
+  sigmoid_linear_params.Sigmoid(params);
+  linear_params_update.DiffSigmoid(sigmoid_linear_params, linear_params_update);
+  params_.AddMat(learning_rate_, linear_params_update);
+}
+
+void SigmoidLinearComponent::Backprop(const std::string &debug_info,
+                               const ComponentPrecomputedIndexes *indexes,
+                               const CuMatrixBase<BaseFloat> &in_value,
+                               const CuMatrixBase<BaseFloat> &, // out_value
+                               const CuMatrixBase<BaseFloat> &out_deriv,
+                               void *memo,
+                               Component *to_update_in,
+                               CuMatrixBase<BaseFloat> *in_deriv) const {
+  SigmoidLinearComponent *to_update =
+    dynamic_cast<SigmoidLinearComponent*>(to_update_in);
+
+  // Propagate the derivative back to the input.
+  // add with coefficient 1.0 since property kBackpropAdds is true.
+  // If we wanted to add with coefficient 0.0 we'd need to zero the
+  // in_deriv, in case of infinities.
+  if (in_deriv) {
+    CuMatrix<BaseFloat> sigmoid_linear_params(params_);
+    sigmoid_linear_params.Sigmoid(sigmoid_linear_params);
+    in_deriv->AddMatMat(1.0, out_deriv, kNoTrans, sigmoid_linear_params,
+                        kNoTrans, 1.0);
+  }
+  if (to_update != NULL) {
+    // Next update the model (must do this 2nd so the derivatives we propagate
+    // are accurate, in case this == to_update_in.)
+    to_update->UpdateSimple(in_value, out_deriv, params_);
+  }
+}
+/*
+SigmoidLinearComponent::SigmoidLinearComponent(
+  const CuMatrix<BaseFloat> &params): LinearComponent(params) {
+  use_natural_gradient_ = false;
+  // Set defaults for natural gradient.
+  preconditioner_in_.SetRank(40);
+  preconditioner_out_.SetRank(80);
+  preconditioner_in_.SetUpdatePeriod(4);
+  preconditioner_out_.SetUpdatePeriod(4);
+  // the component-level defaults of alpha and num_samples_history, at 4.0 and
+  // 2000.0, are the same as in the NaturalGradientOnline code, so there is no
+  // need to set those here.
+}
+*/
+std::string SigmoidLinearComponent::Info() const {
+  std::ostringstream stream;
+  stream << LinearComponent::Info();
+  return stream.str();
+}
+
+Component* SigmoidLinearComponent::Copy() const {
+  return new SigmoidLinearComponent(*this);
+}
 
 void LinearComponent::Read(std::istream &is, bool binary) {
   std::string token = ReadUpdatableCommon(is, binary);

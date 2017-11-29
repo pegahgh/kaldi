@@ -107,6 +107,8 @@ Component* Component::NewComponentOfType(const std::string &component_type) {
     ans = new AffineComponent();
   } else if (component_type == "LinearComponent") {
     ans = new LinearComponent();
+  } else if (component_type == "SigmoidLinearComponent") {
+    ans = new SigmoidLinearComponent();
   } else if (component_type == "NaturalGradientAffineComponent") {
     ans = new NaturalGradientAffineComponent();
   } else if (component_type == "PerElementScaleComponent") {
@@ -235,6 +237,8 @@ void UpdatableComponent::SetUpdatableConfigs(
   l2_regularize_ = other.l2_regularize_;
   is_gradient_ = other.is_gradient_;
   max_change_ = other.max_change_;
+  max_param_value_ = other.max_param_value_;
+  min_param_value_ = other.min_param_value_;
 }
 
 // If these defaults are changed, the defaults in the constructor that
@@ -251,11 +255,13 @@ void UpdatableComponent::InitLearningRatesFromConfig(ConfigLine *cfl) {
   if (learning_rate_ < 0.0 || learning_rate_factor_ < 0.0 ||
       max_change_ < 0.0 || l2_regularize_ < 0.0)
     KALDI_ERR << "Bad initializer " << cfl->WholeLine();
-  BaseFloat min_param_value_ = std::numeric_limits<float>::lowest(),
-    max_param_value_ = std::numeric_limits<float>::max();
-  cfl->GetValue("min-param-value", &min_param_value_);
-  cfl->GetValue("max-param-value", &max_param_value_);
-  KALDI_ASSERT(min_param_value_ < max_param_value_);
+  BaseFloat min_param_value = std::numeric_limits<float>::lowest(),
+    max_param_value = std::numeric_limits<float>::max();
+  cfl->GetValue("min-param-value", &min_param_value);
+  cfl->GetValue("max-param-value", &max_param_value);
+  KALDI_ASSERT(min_param_value < max_param_value);
+  min_param_value_ = min_param_value;
+  max_param_value_ = max_param_value;
 }
 
 
