@@ -32,20 +32,34 @@ enum FillMode { kNearest, kReflect };
 
 struct ImageAugmentationConfig {
   int32 num_channels;
+  int32 num_rotation_classes;
   BaseFloat horizontal_flip_prob;
   BaseFloat horizontal_shift;
   BaseFloat vertical_shift;
   BaseFloat rotation_degree;
   BaseFloat rotation_prob;
+  BaseFloat shear_degree;
+  BaseFloat shear_prob;
+  BaseFloat bw_prob;
+  BaseFloat rotation_class_prob;
+  BaseFloat flip_class_prob;
+  BaseFloat black_and_white_prob;
   std::string fill_mode_string;
 
   ImageAugmentationConfig():
       num_channels(1),
+      num_rotation_classes(1),
       horizontal_flip_prob(0.0),
       horizontal_shift(0.0),
       vertical_shift(0.0),
       rotation_degree(0.0),
       rotation_prob(0.0),
+      shear_degree(0.0),
+      shear_prob(0.0),
+      bw_prob(0.0),
+      rotation_class_prob(0.0),
+      flip_class_prob(0.0),
+      black_and_white_prob(0.0),
       fill_mode_string("nearest") { }
 
 
@@ -65,9 +79,26 @@ struct ImageAugmentationConfig {
                  "Maximum allowed degree to rotate the image");
     po->Register("rotation-prob", &rotation_prob,
                  "Probability of doing rotation");
+    po->Register("shear-degree", &shear_degree,
+                 "Maximum allowed degree to shear the image");
+    po->Register("shear-prob", &shear_prob,
+		 "Probability of doing shearing");
+    po->Register("bw-prob", &bw_prob,
+		 "Probability of doing RGB2BW");
     po->Register("fill-mode", &fill_mode_string, "Mode for dealing with "
 		 "points outside the image boundary when applying transformation. "
 		 "Choices = {nearest, reflect}");
+    po->Register("rotation-class-prob", &rotation_class_prob,
+                 "Probability of doing rotation with a different output layer"
+		 "rotation-class-prob and rotation-prob can't be assigned"
+                 "at the same time");
+    po->Register("num-rotation-classes", &num_rotation_classes,
+		 "Number of classes of different rotation angle.");
+    po->Register("flip-class-prob", &flip_class_prob,
+		 "Probability of doing upside-down");
+    po->Register("black-and-white-prob", &black_and_white_prob,
+		 "Probability of transforming 3-channels RGB images"
+		 "to black and white images.");
   }
 
   void Check() const {
@@ -78,7 +109,15 @@ struct ImageAugmentationConfig {
     KALDI_ASSERT(vertical_shift >= 0 && vertical_shift <= 1);
     KALDI_ASSERT(rotation_degree >=0 && rotation_degree <= 180);
     KALDI_ASSERT(rotation_prob >=0 && rotation_prob <= 1);
+    KALDI_ASSERT(shear_degree >=0 && shear_degree < 90);
+    KALDI_ASSERT(shear_prob >=0 && shear_prob <= 1);
     KALDI_ASSERT(fill_mode_string == "nearest" || fill_mode_string == "reflect");
+    KALDI_ASSERT(rotation_class_prob >=0 && rotation_class_prob <= 1);
+    KALDI_ASSERT(flip_class_prob >=0 && flip_class_prob <= 1);
+    KALDI_ASSERT(black_and_white_prob >=0 && black_and_white_prob <= 1);
+    KALDI_ASSERT(num_rotation_classes >=1);
+    KALDI_ASSERT(!(rotation_prob >0 && rotation_class_prob >0));
+    KALDI_ASSERT(rotation_class_prob + black_and_white_prob + flip_class_prob <= 1);
   }
 
   FillMode GetFillMode() const {
@@ -191,6 +230,36 @@ void ApplyAffineTransform(MatrixBase<BaseFloat> &transform,
 }
 
 /**
+   This function makes a 3-channel RGB image into a black&white image which
+   still has 3 channels but with each channel as an average of the previous
+   RGB channels.
+ */
+void RGBtoBlackWhite(MatrixBase<BaseFloat> *image,
+		     int32 num_channels,
+		     bool *rgb2bw) {
+  int32 num_rows = image->NumRows(),
+        num_cols = image->NumCols(),
+        height = num_cols / num_channels,
+        width = num_rows;
+  if (num_channels == 3) {
+    KALDI_ASSERT(num_cols % num_channels == 0);
+    Matrix<BaseFloat> original_image(*image);
+    for (int32 r = 0; r < width; r++) {
+      for (int32 c = 0; c < height; c++) {
+	BaseFloat rgb = 0;
+	for (int32 ch = 0; ch < num_channels; ch++) {
+	  rgb += original_image(r, num_channels * c + ch);
+	}
+	for (int32 ch = 0; ch < num_channels; ch++) {
+	  (*image)(r, num_channels * c + ch) = rgb / num_channels;
+	}
+      }
+    }
+    *rgb2bw = true;
+  }
+}
+
+/**
    This function randomly modifies (perturbs) the image by applying different
    geometric transformations according to the options in 'config'.
    References: "Digital Image Processing book by Gonzalez and Woods" and
@@ -203,9 +272,13 @@ void ApplyAffineTransform(MatrixBase<BaseFloat> &transform,
    of channels/colors (channel varies the fastest).
 */
 void PerturbImage(const ImageAugmentationConfig &config,
-                  MatrixBase<BaseFloat> *image) {
+                  MatrixBase<BaseFloat> *image,
+		  bool *upside_down,
+		  bool *rgb2bw,
+		  int32 *rotation_class) {
   config.Check();
   FillMode fill_mode = config.GetFillMode();
+  BaseFloat rand_flag = RandUniform();
   int32 image_width = image->NumRows(),
       num_channels = config.num_channels,
       image_height = image->NumCols() / num_channels;
@@ -232,8 +305,10 @@ void PerturbImage(const ImageAugmentationConfig &config,
   shift_mat(1, 2) = round(vertical_shift);
   // since we will center the image before applying the transform,
   // horizontal flipping is simply achieved by setting [0, 0] to -1:
-  if (WithProb(config.horizontal_flip_prob))
+  if (WithProb(config.horizontal_flip_prob)) {
     shift_mat(0, 0) = -1.0;
+  }
+
 
   Matrix<BaseFloat> rotation_mat(3, 3, kUndefined);
   rotation_mat.SetUnit();
@@ -241,6 +316,7 @@ void PerturbImage(const ImageAugmentationConfig &config,
   // [ cos(theta)  -sin(theta)  0
   //   sin(theta)  cos(theta)   0
   //   0           0            1 ]
+  // rotation in traditional image augmentation
   if (RandUniform() <= config.rotation_prob) {
     BaseFloat theta = (2 * config.rotation_degree * RandUniform() -
 		       config.rotation_degree) / 180.0 * M_PI;
@@ -256,6 +332,13 @@ void PerturbImage(const ImageAugmentationConfig &config,
   // [ 1    -sin(shear)   0
   //   0     cos(shear)   0
   //   0     0            1 ]
+  if (RandUniform() <= config.shear_prob) {
+    BaseFloat theta = (2 * config.shear_degree * RandUniform() -
+		       config.shear_degree) / 180.0 * M_PI;
+    shear_mat(0, 1) = -sin(theta);
+    shear_mat(1, 1) = cos(theta);
+  }
+
 
   Matrix<BaseFloat> zoom_mat(3, 3, kUndefined);
   zoom_mat.SetUnit();
@@ -263,6 +346,37 @@ void PerturbImage(const ImageAugmentationConfig &config,
   // [ x_zoom   0   0
   //   0   y_zoom   0
   //   0     0      1 ]
+
+  if (RandUniform() <= config.bw_prob) {
+    bool foo = false;
+    RGBtoBlackWhite(image, config.num_channels, &foo);
+  }
+
+  // handle with augmentation that will change output
+  if (rand_flag <= config.flip_class_prob) {
+    shift_mat(1, 1) = -1.0;
+    *upside_down = true;
+  } else if (rand_flag <= config.flip_class_prob + config.rotation_class_prob) {
+    // Choose rotation angle and output to 'rotation_class' the
+    // corresponding rotation class in the range
+    // [ 0, config.num_rotation_classes - 1].
+    *rotation_class = RandInt(0, config.num_rotation_classes - 1);
+    BaseFloat interval = 2 * M_PI / config.num_rotation_classes;
+    BaseFloat theta = *rotation_class * interval + interval * RandUniform();
+    rotation_mat(0, 0) = cos(theta);
+    rotation_mat(0, 1) = -sin(theta);
+    rotation_mat(1, 0) = sin(theta);
+    rotation_mat(1, 1) = cos(theta);
+  } else if(rand_flag <= (config.flip_class_prob + config.rotation_class_prob +
+			 config.black_and_white_prob)) {
+    RGBtoBlackWhite(image, config.num_channels, rgb2bw);
+  } else {
+    *upside_down = false;
+    *rgb2bw = false;
+    *rotation_class = -1;
+  }
+
+
 
   // transform_mat = rotation_mat * shift_mat * shear_mat * zoom_mat:
   transform_mat.AddMatMat(1.0, shift_mat, kNoTrans,
@@ -304,6 +418,9 @@ void PerturbImageInNnetExample(
     NnetExample *eg) {
   int32 io_size = eg->io.size();
   bool found_input = false;
+  bool upside_down = false;
+  int32 rotation_class = -1;
+  bool rgb2bw = false;
   for (int32 i = 0; i < io_size; i++) {
     NnetIo &io = eg->io[i];
     if (io.name == "input") {
@@ -314,10 +431,35 @@ void PerturbImageInNnetExample(
       // We won't recompress, but this won't matter because this
       // program is intended to be used as part of a pipe, we
       // likely won't be dumping the perturbed data to disk.
-      PerturbImage(config, &image);
+      PerturbImage(config, &image, &upside_down, &rgb2bw, &rotation_class);
 
       // modify the 'io' object.
       io.features = image;
+    }
+  }
+  // class augmentation
+  for (int32 j =  0; j < io_size; j++) {
+    NnetIo &io2 = eg->io[j];
+    if (io2.name == "output" && upside_down == true) io2.name = "output-u";
+    if (io2.name == "output" && rgb2bw == true) io2.name = "output-b";
+    if (io2.name == "output" && rotation_class >= 0) {
+      io2.name = "output-r";
+      // modify the class label, taking into account the
+      // rotation class.
+      KALDI_ASSERT(io2.features.Type() == kSparseMatrix &&
+		   io2.features.NumRows() == 1);
+      int32 old_num_classes = io2.features.NumCols(),
+	num_rotation_classes = config.num_rotation_classes,
+	new_num_classes = old_num_classes * num_rotation_classes;
+      SparseMatrix<BaseFloat> old_output(io2.features.GetSparseMatrix());
+      const SparseVector<BaseFloat> &row(old_output.Row(0));
+      int32 old_class;
+      BaseFloat value = row.Max(&old_class);  // usually this will be 1.0.
+      int32 new_class = old_class * num_rotation_classes + rotation_class;
+      std::vector<std::vector<std::pair<MatrixIndexT, BaseFloat> > > new_pairs(1);
+      new_pairs[0].push_back(std::pair<MatrixIndexT, BaseFloat>(new_class, value));
+      SparseMatrix<BaseFloat> new_output(new_num_classes, new_pairs);
+      io2.features.SwapSparseMatrix(&new_output);
     }
   }
   if (!found_input)
