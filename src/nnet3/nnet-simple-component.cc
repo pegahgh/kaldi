@@ -30,30 +30,32 @@
 namespace kaldi {
 namespace nnet3 {
 
-void PnormComponent::Init(int32 input_dim, int32 output_dim)  {
+void PnormComponent::Init(int32 input_dim, int32 output_dim, BaseFloat p)  {
   input_dim_ = input_dim;
   output_dim_ = output_dim;
+  p_ = p;
   KALDI_ASSERT(input_dim_ > 0 && output_dim_ > 0 &&
-               input_dim_ % output_dim_ == 0);
+               input_dim_ % output_dim_ == 0 && p_ >= 0);
 }
 
 void PnormComponent::InitFromConfig(ConfigLine *cfl) {
   int32 input_dim = 0;
   int32 output_dim = 0;
+  BaseFloat p = 2;
   bool ok = cfl->GetValue("output-dim", &output_dim) &&
       cfl->GetValue("input-dim", &input_dim);
+  cfl->GetValue("p", &p);
   if (!ok || cfl->HasUnusedValues() || output_dim <= 0)
     KALDI_ERR << "Invalid initializer for layer of type "
               << Type() << ": \"" << cfl->WholeLine() << "\"";
-  Init(input_dim, output_dim);
+  Init(input_dim, output_dim, p);
 }
 
 
 void* PnormComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
                                const CuMatrixBase<BaseFloat> &in,
                                CuMatrixBase<BaseFloat> *out) const {
-  BaseFloat p = 2.0;
-  out->GroupPnorm(in, p);
+  out->GroupPnorm(in, p_);
   return NULL;
 }
 
@@ -67,8 +69,7 @@ void PnormComponent::Backprop(const std::string &debug_info,
                               CuMatrixBase<BaseFloat> *in_deriv) const {
   if (!in_deriv)
     return;
-  BaseFloat p = 2.0;
-  in_deriv->DiffGroupPnorm(in_value, out_value, out_deriv, p);
+  in_deriv->DiffGroupPnorm(in_value, out_value, out_deriv, p_);
 }
 
 void PnormComponent::Read(std::istream &is, bool binary) {
@@ -76,7 +77,13 @@ void PnormComponent::Read(std::istream &is, bool binary) {
   ReadBasicType(is, binary, &input_dim_);
   ExpectToken(is, binary, "<OutputDim>");
   ReadBasicType(is, binary, &output_dim_);
-  ExpectToken(is, binary, "</PnormComponent>");
+  std::string token;
+  ReadToken(is, binary, &token);
+  if (token == "<P>") {
+    ReadBasicType(is, binary, &p_);
+    ReadToken(is, binary, &token);
+  }
+  KALDI_ASSERT(token == "</PnormComponent>");
 }
 
 void PnormComponent::Write(std::ostream &os, bool binary) const {
@@ -85,6 +92,8 @@ void PnormComponent::Write(std::ostream &os, bool binary) const {
   WriteBasicType(os, binary, input_dim_);
   WriteToken(os, binary, "<OutputDim>");
   WriteBasicType(os, binary, output_dim_);
+  WriteToken(os, binary, "<P>");
+  WriteBasicType(os, binary, p_);
   WriteToken(os, binary, "</PnormComponent>");
 }
 
@@ -1199,20 +1208,44 @@ void RectifiedLinearComponent::StoreStats(
 void AffineComponent::ApplyMinMaxToWeights() {
   BaseFloat max_param_value = MaxParamValue(),
     min_param_value = MinParamValue();
+  CuMatrix<BaseFloat> linear_params_diff(linear_params_);
   if (min_param_value > std::numeric_limits<float>::lowest()) {
     linear_params_.ApplyFloor(min_param_value);
     bias_params_.ApplyFloor(min_param_value);
   }
+  int32 tot_dim = InputDim() * OutputDim();
+  // percentage of weight, smaller than min-param-value, which mapped to
+  // min-param-value.
+  if (GetVerboseLevel() > 0) {
+    linear_params_diff.AddMat(-1.0, linear_params_);
+    linear_params_diff.Scale(-1.0);
+    linear_params_diff.ApplyHeaviside();
+    BaseFloat num_min_weights = linear_params_diff.Sum();
+    KALDI_LOG << num_min_weights / tot_dim * 100.0 << " % of parameters floored "
+              << " to min-param-value="<< min_param_value;
+  }
 
+  linear_params_diff.CopyFromMat(linear_params_);
   if (max_param_value < std::numeric_limits<float>::max()) {
     // apply min(max_value, w)
     linear_params_.ApplyCeiling(max_param_value);
     bias_params_.ApplyCeiling(max_param_value);
   }
+  // percentage of weight, larger than max-param-value, which mapped to
+  // max-param-value.
+  if (GetVerboseLevel() > 0) {
+    linear_params_diff.AddMat(-1.0, linear_params_);
+    linear_params_diff.ApplyHeaviside();
+    BaseFloat num_max_weights = linear_params_diff.Sum();
+    KALDI_LOG << num_max_weights / tot_dim * 100.0 << " % of parameters ceiled "
+              << " to max-param-value="<< max_param_value;
+  }
+
   KALDI_ASSERT(linear_params_.Max() <= max_param_value &&
                linear_params_.Min() >= min_param_value &&
                bias_params_.Max() <= max_param_value &&
                bias_params_.Min() >= min_param_value);
+
 }
 
 int32 AffineComponent::Properties() const {
@@ -1241,7 +1274,6 @@ void AffineComponent::Add(BaseFloat alpha, const Component &other_in) {
   const AffineComponent *other =
       dynamic_cast<const AffineComponent*>(&other_in);
 
-  KALDI_ASSERT(apply_sigmoid_ == other->apply_sigmoid_);
   KALDI_ASSERT(other != NULL);
   linear_params_.AddMat(alpha, other->linear_params_);
   bias_params_.AddVec(alpha, other->bias_params_);
@@ -1250,8 +1282,7 @@ void AffineComponent::Add(BaseFloat alpha, const Component &other_in) {
 AffineComponent::AffineComponent(const AffineComponent &component):
     UpdatableComponent(component),
     linear_params_(component.linear_params_),
-    bias_params_(component.bias_params_),
-    apply_sigmoid_(component.apply_sigmoid_) { }
+    bias_params_(component.bias_params_) { }
 
 AffineComponent::AffineComponent(const CuMatrixBase<BaseFloat> &linear_params,
                                  const CuVectorBase<BaseFloat> &bias_params,
@@ -1261,7 +1292,6 @@ AffineComponent::AffineComponent(const CuMatrixBase<BaseFloat> &linear_params,
   SetUnderlyingLearningRate(learning_rate);
   KALDI_ASSERT(linear_params.NumRows() == bias_params.Dim()&&
                bias_params.Dim() != 0);
-  apply_sigmoid_ = false;
 }
 
 void AffineComponent::SetParams(const CuVectorBase<BaseFloat> &bias,
@@ -1286,7 +1316,6 @@ std::string AffineComponent::Info() const {
   stream << UpdatableComponent::Info();
   PrintParameterStats(stream, "linear-params", linear_params_);
   PrintParameterStats(stream, "bias", bias_params_, true);
-  stream << " apply-sigmoid=" << (apply_sigmoid_ ? "true" : "false");
   return stream.str();
 }
 
@@ -1303,8 +1332,7 @@ BaseFloat AffineComponent::DotProduct(const UpdatableComponent &other_in) const 
 }
 
 void AffineComponent::Init(int32 input_dim, int32 output_dim,
-                           BaseFloat param_stddev, BaseFloat bias_stddev,
-                           bool apply_sigmoid) {
+                           BaseFloat param_stddev, BaseFloat bias_stddev) {
   BaseFloat max_param_value = MaxParamValue(),
     min_param_value = MinParamValue();
   KALDI_ASSERT(param_stddev < std::abs(max_param_value));
@@ -1315,7 +1343,6 @@ void AffineComponent::Init(int32 input_dim, int32 output_dim,
   linear_params_.Scale(param_stddev);
   bias_params_.SetRandn();
   bias_params_.Scale(bias_stddev);
-  apply_sigmoid_ = apply_sigmoid;
 }
 
 void AffineComponent::Init(std::string matrix_filename) {
@@ -1327,12 +1354,10 @@ void AffineComponent::Init(std::string matrix_filename) {
   bias_params_.Resize(output_dim);
   linear_params_.CopyFromMat(mat.Range(0, output_dim, 0, input_dim));
   bias_params_.CopyColFromMat(mat, input_dim);
-  apply_sigmoid_ = false;
 }
 
 void AffineComponent::InitFromConfig(ConfigLine *cfl) {
-  bool ok = true,
-    apply_sigmoid = false;
+  bool ok = true;
   std::string matrix_filename;
   int32 input_dim = -1, output_dim = -1;
   InitLearningRatesFromConfig(cfl);
@@ -1351,9 +1376,8 @@ void AffineComponent::InitFromConfig(ConfigLine *cfl) {
         bias_stddev = 1.0;
     cfl->GetValue("param-stddev", &param_stddev);
     cfl->GetValue("bias-stddev", &bias_stddev);
-    cfl->GetValue("apply-sigmoid", &apply_sigmoid);
     Init(input_dim, output_dim,
-         param_stddev, bias_stddev, apply_sigmoid);
+         param_stddev, bias_stddev);
   }
   if (cfl->HasUnusedValues())
     KALDI_ERR << "Could not process these elements in initializer: "
@@ -1368,23 +1392,10 @@ void AffineComponent::InitFromConfig(ConfigLine *cfl) {
 void* AffineComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
                                 const CuMatrixBase<BaseFloat> &in,
                                  CuMatrixBase<BaseFloat> *out) const {
-  if (apply_sigmoid_) {
-    // apply sigmoid on bias params
-    CuMatrix<BaseFloat> sigmoid_bias_params(1, bias_params_.Dim());
-    sigmoid_bias_params.CopyRowsFromVec(bias_params_);
-    sigmoid_bias_params.Sigmoid(sigmoid_bias_params);
-    out->CopyRowsFromVec(sigmoid_bias_params.Row(0));
-
-    // apply sigmoid on linear params.
-    CuMatrix<BaseFloat> sigmoid_linear_params(linear_params_);
-    sigmoid_linear_params.Sigmoid(linear_params_);
-    out->AddMatMat(1.0, in, kNoTrans, sigmoid_linear_params, kTrans, 1.0);
-  } else {
-    // No need for asserts as they'll happen within the matrix operations.
-    out->CopyRowsFromVec(bias_params_); // copies bias_params_ to each row
-    // of *out.
-    out->AddMatMat(1.0, in, kNoTrans, linear_params_, kTrans, 1.0);
-  }
+  // No need for asserts as they'll happen within the matrix operations.
+  out->CopyRowsFromVec(bias_params_); // copies bias_params_ to each row
+  // of *out.
+  out->AddMatMat(1.0, in, kNoTrans, linear_params_, kTrans, 1.0);
   return NULL;
 }
 
@@ -1395,32 +1406,6 @@ void AffineComponent::UpdateSimple(const CuMatrixBase<BaseFloat> &in_value,
                            in_value, kNoTrans, 1.0);
 }
 
-void AffineComponent::UpdateSimple(const CuMatrixBase<BaseFloat> &in_value,
-                                   const CuMatrixBase<BaseFloat> &out_deriv,
-                                   const CuVectorBase<BaseFloat> &bias_params,
-                                   const CuMatrixBase<BaseFloat> &linear_params) {
-  // update for bias params is out_deriv * sigmoid(bias) * (1-sigmoid(bias))
-  CuVector<BaseFloat> bias_param_update(bias_params.Dim());
-  CuMatrix<BaseFloat> sigmoid_bias_params(1, bias_params.Dim());
-  sigmoid_bias_params.CopyRowsFromVec(bias_params);
-  sigmoid_bias_params.Sigmoid(sigmoid_bias_params);
-  bias_param_update.AddRowSumMat(1.0, out_deriv, 0.0);
-  for (int32 i = 0; i < bias_params_.Dim(); i++)
-    bias_param_update(i) = bias_param_update(i) *
-      sigmoid_bias_params(0, i) * (1.0 - sigmoid_bias_params(0, i));
-  bias_params_.AddVec(learning_rate_, bias_param_update);
-
-  // update for linear params as (out_deriv * in_value) .* [sig(w) * (1-sig(w))]
-  CuMatrix<BaseFloat> linear_params_update(linear_params_.NumRows(),
-                                           linear_params_.NumCols());
-  linear_params_update.AddMatMat(1.0, out_deriv, kTrans, in_value,
-                                           kNoTrans, 0.0);
-  CuMatrix<BaseFloat> sigmoid_linear_params(linear_params_.NumRows(),
-    linear_params_.NumCols());
-  sigmoid_linear_params.Sigmoid(linear_params);
-  linear_params_update.DiffSigmoid(sigmoid_linear_params, linear_params_update);
-  linear_params_.AddMat(learning_rate_, linear_params_update);
-}
 
 void AffineComponent::Backprop(const std::string &debug_info,
                                const ComponentPrecomputedIndexes *indexes,
@@ -1437,27 +1422,16 @@ void AffineComponent::Backprop(const std::string &debug_info,
   // If we wanted to add with coefficient 0.0 we'd need to zero the
   // in_deriv, in case of infinities.
   if (in_deriv) {
-    if (apply_sigmoid_) {
-      CuMatrix<BaseFloat> sigmoid_linear_params(linear_params_);
-      sigmoid_linear_params.Sigmoid(sigmoid_linear_params);
-      in_deriv->AddMatMat(1.0, out_deriv, kNoTrans, sigmoid_linear_params,
-                          kNoTrans, 1.0);
-    } else {
-      in_deriv->AddMatMat(1.0, out_deriv, kNoTrans, linear_params_, kNoTrans,
-                          1.0);
-    }
+    in_deriv->AddMatMat(1.0, out_deriv, kNoTrans, linear_params_, kNoTrans,
+                        1.0);
   }
   if (to_update != NULL) {
     // Next update the model (must do this 2nd so the derivatives we propagate
     // are accurate, in case this == to_update_in.)
-    if (apply_sigmoid_) {
-      to_update->UpdateSimple(in_value, out_deriv, bias_params_, linear_params_);
-    } else {
-      if (to_update->is_gradient_)
-        to_update->UpdateSimple(in_value, out_deriv);
-      else  // the call below is to a virtual function that may be re-implemented
-        to_update->Update(debug_info, in_value, out_deriv);  // by child classes.
-    }
+    if (to_update->is_gradient_)
+      to_update->UpdateSimple(in_value, out_deriv);
+    else  // the call below is to a virtual function that may be re-implemented
+      to_update->Update(debug_info, in_value, out_deriv);  // by child classes.
   }
 }
 
@@ -1471,10 +1445,6 @@ void AffineComponent::Read(std::istream &is, bool binary) {
   ReadBasicType(is, binary, &is_gradient_);
   std::string token;
   ReadToken(is, binary, &token);
-  if (token == "<ApplySigmoid>") {
-    ReadBasicType(is, binary, &apply_sigmoid_);
-    ReadToken(is, binary, &token);
-  }
   KALDI_ASSERT(token == "</AffineComponent>");
 }
 
@@ -1486,8 +1456,6 @@ void AffineComponent::Write(std::ostream &os, bool binary) const {
   bias_params_.Write(os, binary);
   WriteToken(os, binary, "<IsGradient>");
   WriteBasicType(os, binary, is_gradient_);
-  WriteToken(os, binary, "<ApplySigmoid>");
-  WriteBasicType(os, binary, apply_sigmoid_);
   WriteToken(os, binary, "</AffineComponent>");
 }
 
@@ -2997,7 +2965,6 @@ NaturalGradientAffineComponent::NaturalGradientAffineComponent(
 
 void NaturalGradientAffineComponent::InitFromConfig(ConfigLine *cfl) {
   bool ok = true;
-  bool apply_sigmoid = false;
   std::string matrix_filename;
   num_samples_history_ = 2000.0;
   alpha_ = 4.0;
@@ -3012,8 +2979,6 @@ void NaturalGradientAffineComponent::InitFromConfig(ConfigLine *cfl) {
   cfl->GetValue("rank-in", &rank_in_);
   cfl->GetValue("rank-out", &rank_out_);
   cfl->GetValue("update-period", &update_period_);
-  cfl->GetValue("apply-sigmoid", &apply_sigmoid);
-
   if (cfl->GetValue("matrix", &matrix_filename)) {
     CuMatrix<BaseFloat> mat;
     ReadKaldiObject(matrix_filename, &mat); // will abort on failure.
@@ -3380,6 +3345,20 @@ Component* SigmoidLinearComponent::Copy() const {
   return new SigmoidLinearComponent(*this);
 }
 
+void LinearComponent::ApplyMinMaxToWeights() {
+  BaseFloat max_param_value = MaxParamValue(),
+    min_param_value = MinParamValue();
+  if (min_param_value > std::numeric_limits<float>::lowest())
+    params_.ApplyFloor(min_param_value);
+
+  // apply min(max_value, w)
+  if (max_param_value < std::numeric_limits<float>::max())
+    params_.ApplyCeiling(max_param_value);
+
+  KALDI_ASSERT(params_.Max() <= max_param_value &&
+               params_.Min() >= min_param_value);
+}
+
 void LinearComponent::Read(std::istream &is, bool binary) {
   std::string token = ReadUpdatableCommon(is, binary);
   KALDI_ASSERT(token == "");
@@ -3435,7 +3414,10 @@ void LinearComponent::InitFromConfig(ConfigLine *cfl) {
     ok = ok && cfl->GetValue("output-dim", &output_dim);
     if (!ok)
       KALDI_ERR << "Bad initializer " << cfl->WholeLine();
-    BaseFloat param_stddev = 1.0 / std::sqrt(input_dim);
+    BaseFloat param_stddev = 1.0 / std::sqrt(input_dim),
+      max_param_value = MaxParamValue(),
+      min_param_value = MinParamValue();
+    param_stddev = std::min(param_stddev, max_param_value);
     cfl->GetValue("param-stddev", &param_stddev);
     params_.Resize(output_dim, input_dim);
     KALDI_ASSERT(output_dim > 0 && input_dim > 0 && param_stddev >= 0.0);

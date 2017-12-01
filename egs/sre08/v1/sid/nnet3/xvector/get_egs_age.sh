@@ -127,7 +127,7 @@ if [ $stage -le 0 ]; then
   utils/filter_scp.pl $temp/utt2num_frames.train_subset $temp/utt2int > $temp/utt2int.train_subset
 fi
 
-num_pdfs=$(awk '{print $2}' $temp/utt2int | sort | uniq -c | wc -l)
+num_pdfs=$[1+$(awk '{print $2}' $temp/utt2int | sort -n | uniq | tail -n 1)]
 # The script assumes you've prepared the features ahead of time.
 feats="scp,s,cs:utils/filter_scp.pl $temp/ranges.JOB $data/feats.scp |"
 train_subset_feats="scp,s,cs:utils/filter_scp.pl $temp/train_subset_ranges.1 $data/feats.scp |"

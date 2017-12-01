@@ -1421,7 +1421,7 @@ void ComputeExampleComputationRequestSimple(
 static void GenerateRandomComponentConfig(std::string *component_type,
                                           std::string *config) {
 
-  int32 n = RandInt(38, 38);
+  int32 n = RandInt(0, 0);
   BaseFloat learning_rate = 0.001 * RandInt(1, 100);
 
   std::ostringstream os;
@@ -1430,7 +1430,9 @@ static void GenerateRandomComponentConfig(std::string *component_type,
       *component_type = "PnormComponent";
       int32 output_dim = RandInt(1, 50), group_size = RandInt(1, 15),
           input_dim = output_dim * group_size;
-      os << "input-dim=" << input_dim << " output-dim=" << output_dim;
+      BaseFloat p = RandInt(1,10) / 10.0;
+      os << "input-dim=" << input_dim << " output-dim=" << input_dim
+         << " p=" << p;
       break;
     }
     case 1: {

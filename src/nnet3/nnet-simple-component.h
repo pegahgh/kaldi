@@ -44,14 +44,14 @@ namespace nnet3 {
 // This "nnet3" version of the p-norm component only supports the 2-norm.
 class PnormComponent: public Component {
  public:
-  void Init(int32 input_dim, int32 output_dim);
-  explicit PnormComponent(int32 input_dim, int32 output_dim) {
-    Init(input_dim, output_dim);
+  void Init(int32 input_dim, int32 output_dim, BaseFloat p = 2.0);
+  explicit PnormComponent(int32 input_dim, int32 output_dim, BaseFloat p = 2) {
+    Init(input_dim, output_dim, p);
   }
   virtual int32 Properties() const {
     return kSimpleComponent|kBackpropNeedsInput|kBackpropNeedsOutput;
   }
-  PnormComponent(): input_dim_(0), output_dim_(0) { }
+  PnormComponent(): input_dim_(0), output_dim_(0), p_(2.0) { }
   virtual std::string Type() const { return "PnormComponent"; }
   virtual void InitFromConfig(ConfigLine *cfl);
   virtual int32 InputDim() const { return input_dim_; }
@@ -68,7 +68,7 @@ class PnormComponent: public Component {
                         Component *to_update,
                         CuMatrixBase<BaseFloat> *in_deriv) const;
   virtual Component* Copy() const { return new PnormComponent(input_dim_,
-                                                              output_dim_); }
+                                                              output_dim_, p_); }
 
   virtual void Read(std::istream &is, bool binary); // This Read function
   // requires that the Component has the correct type.
@@ -79,6 +79,7 @@ class PnormComponent: public Component {
  protected:
   int32 input_dim_;
   int32 output_dim_;
+  BaseFloat p_;
 };
 
 // This component randomly zeros dropout_proportion of the input
@@ -473,7 +474,7 @@ class AffineComponent: public UpdatableComponent {
   virtual std::string Info() const;
   virtual void InitFromConfig(ConfigLine *cfl);
 
-  AffineComponent() { apply_sigmoid_ = false; } // use Init to really initialize.
+  AffineComponent() { } // use Init to really initialize.
   virtual std::string Type() const { return "AffineComponent"; }
   virtual int32 Properties() const;
 
@@ -517,8 +518,7 @@ class AffineComponent: public UpdatableComponent {
                   const CuVectorBase<BaseFloat> &bias_params,
                   BaseFloat learning_rate);
   void Init(int32 input_dim, int32 output_dim,
-            BaseFloat param_stddev, BaseFloat bias_stddev,
-            bool apply_sigmoid=false);
+            BaseFloat param_stddev, BaseFloat bias_stddev);
 
   // This function resizes the dimensions of the component, setting the
   // parameters to zero, while leaving any other configuration values the same.
@@ -541,18 +541,9 @@ class AffineComponent: public UpdatableComponent {
   virtual void UpdateSimple(
       const CuMatrixBase<BaseFloat> &in_value,
       const CuMatrixBase<BaseFloat> &out_deriv);
-  // UpdateSimple is used when *this is a gradient.  Child classes may override
-  // this if needed, but typically won't need to.
-  // This branch is used for apply_sigmoid = true
-  virtual void UpdateSimple(
-      const CuMatrixBase<BaseFloat> &in_value,
-      const CuMatrixBase<BaseFloat> &out_deriv,
-      const CuVectorBase<BaseFloat> &bias_params,
-      const CuMatrixBase<BaseFloat> &linear_params);
   const AffineComponent &operator = (const AffineComponent &other); // Disallow.
   CuMatrix<BaseFloat> linear_params_;
   CuVector<BaseFloat> bias_params_;
-  bool apply_sigmoid_; // If true, sigmoid function is applied on weights.
 };
 
 class RepeatedAffineComponent;
@@ -989,7 +980,7 @@ class LinearComponent: public UpdatableComponent {
   virtual void Scale(BaseFloat scale);
   virtual void Add(BaseFloat alpha, const Component &other);
   virtual void PerturbParams(BaseFloat stddev);
-  virtual void ApplyMinMaxToWeights() {}
+  virtual void ApplyMinMaxToWeights();
   virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
   virtual int32 NumParameters() const;
   virtual void Vectorize(VectorBase<BaseFloat> *params) const;
