@@ -455,7 +455,7 @@ class XconfigConvLayer(XconfigLayerBase):
                 column_map_str = ",".join([str(x) for x in column_map])
                 configs.append('component name={0}.permute type=PermuteComponent '
                                'column-map={1}'.format(name, column_map_str))
-                configs.append('component-node name={0}.permute component={0}.permute '
+                configs.append('component-node name={0}.permute component={0}.permute '.format(name))
             elif operation == 'so':
                 configs.append('component name={0}.so type=ScaleAndOffsetComponent '
                            'dim={1} block-dim={2}'.format(

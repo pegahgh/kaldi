@@ -9,3 +9,4 @@ from attention import *
 from lstm import *
 from stats_layer import *
 from trivial_layers import *
+from raw_signal import *

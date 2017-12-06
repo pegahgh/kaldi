@@ -1445,6 +1445,11 @@ void AffineComponent::Read(std::istream &is, bool binary) {
   ReadBasicType(is, binary, &is_gradient_);
   std::string token;
   ReadToken(is, binary, &token);
+  if (token == "<ApplySigmoid>") {
+    bool apply_sigmoid = false;
+    ReadBasicType(is, binary, &apply_sigmoid);
+    ReadToken(is, binary, &token);
+  }
   KALDI_ASSERT(token == "</AffineComponent>");
 }
 
