@@ -71,7 +71,7 @@ config_to_layer = {
         'relu-renorm-attention-layer': xlayers.XconfigAttentionLayer,
         'renorm-component': xlayers.XconfigRenormComponent,
         'preprocess-fft-abs-lognorm-affine-log-layer': xlayers.XconfigFftFilterLayer,
-        'preprocess-fft-abs2-lognorm-affine-log-layer': xlayers.XconfigFftFilterLayer
+        'preprocess-fft-abs-log-layer': xlayers.XconfigFftFilterLayer
 }
 
 # Turn a config line and a list of previous layers into
