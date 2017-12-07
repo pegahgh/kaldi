@@ -138,6 +138,7 @@ class XconfigConvLayer(XconfigLayerBase):
                        'rank-in':'', 'rank-out':'', 'num-minibatches-history':'',
                        'alpha-in':'', 'alpha-out':'',
                        'dropout-proportion': 0.5,
+                       'l2-regularize':'',
                        # options for TimeConvolutionComponent
                        'sub-frames-per-frame': 0,
                        'sub-frames-left-context': 0,
