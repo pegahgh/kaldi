@@ -77,6 +77,17 @@ NnetIo::NnetIo(const std::string &name,
     indexes[i].t = t_begin + i * t_stride;
 }
 
+NnetIo::NnetIo(const std::string &name,
+               int32 t_begin, int32 t_end,
+               int32 t_stride):
+    name(name) {
+  int32 num_rows = (t_end - t_begin) / t_stride;
+  KALDI_ASSERT(num_rows > 0);
+  indexes.resize(num_rows);
+  for (int32 i = 0; i < num_rows; i++)
+    indexes[i].t = t_begin + i * t_stride;
+}
+
 void NnetIo::Swap(NnetIo *other) {
   name.swap(other->name);
   indexes.swap(other->indexes);

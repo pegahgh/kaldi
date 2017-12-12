@@ -113,9 +113,14 @@ static void MergeIo(const std::vector<NnetExample> &src,
                                              names_end = names.end();
   std::vector<NnetExample>::const_iterator eg_iter = src.begin(),
     eg_end = src.end();
+  int32 g_n_offset = 0; // global n offset used to add new eg into merged egs.
+                       // It allows to add multiple consequtive io in single
+                       // eg with same io.name into merged egs.
   for (int32 n = 0; eg_iter != eg_end; ++eg_iter, ++n) {
     std::vector<NnetIo>::const_iterator io_iter = eg_iter->io.begin(),
       io_end = eg_iter->io.end();
+    // add n index to global n index.
+    int32 max_n_offset = -1;
     for (; io_iter != io_end; ++io_iter) {
       const NnetIo &io = *io_iter;
       std::vector<std::string>::const_iterator names_iter =
@@ -126,12 +131,11 @@ static void MergeIo(const std::vector<NnetExample> &src,
       int32 this_size = io.indexes.size();
       int32 &this_offset = cur_size[f];
       KALDI_ASSERT(this_size + this_offset <= sizes[f]);
-
       // Add f'th Io's features
       output_lists[f].push_back(&(io.features));
-
       // Work on the Indexes for the f^th Io in merged_eg
       NnetIo &output_io = merged_eg->io[f];
+      max_n_offset = std::max(max_n_offset, io.indexes[0].n);
       std::copy(io.indexes.begin(), io.indexes.end(),
                 output_io.indexes.begin() + this_offset);
       std::vector<Index>::iterator output_iter = output_io.indexes.begin();
@@ -139,12 +143,17 @@ static void MergeIo(const std::vector<NnetExample> &src,
       for (int32 i = this_offset; i < this_offset + this_size; i++) {
         // we could easily support merging already-merged egs, but I don't see a
         // need for it right now.
-        KALDI_ASSERT(output_iter[i].n == 0 &&
-                     "Merging already-merged egs?  Not currentlysupported.");
-        output_iter[i].n = n;
+        //KALDI_ASSERT(output_iter[i].n == 0 &&
+        //             "Merging already-merged egs?  Not currentlysupported.");
+        //output_iter[i].n = n;
+        KALDI_ASSERT(output_iter[i].n >= 0);
+        if (output_iter[i].n > max_n_offset)
+          max_n_offset = output_iter[i].n;
+        output_iter[i].n += g_n_offset;
       }
       this_offset += this_size;  // note: this_offset is a reference.
     }
+    g_n_offset += max_n_offset + 1;
   }
   KALDI_ASSERT(cur_size == sizes);
   for (int32 f = 0; f < num_feats; f++) {

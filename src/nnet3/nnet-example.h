@@ -46,7 +46,7 @@ struct NnetIo {
   GeneralMatrix features;
 
   /// This constructor creates NnetIo with name "name", indexes with n=0, x=0,
-  /// and t values ranging from t_begin to 
+  /// and t values ranging from t_begin to
   /// (t_begin + t_stride * feats.NumRows() - 1) with a stride t_stride, and
   /// the provided features.  t_begin should be the frame that feats.Row(0)
   /// represents.
@@ -55,7 +55,7 @@ struct NnetIo {
          int32 t_stride = 1);
 
   /// This constructor creates NnetIo with name "name", indexes with n=0, x=0,
-  /// and t values ranging from t_begin to 
+  /// and t values ranging from t_begin to
   /// (t_begin + t_stride * feats.NumRows() - 1) with a stride t_stride, and
   /// the provided features.  t_begin should be the frame that the first row
   /// of 'feats' represents.
@@ -71,6 +71,14 @@ struct NnetIo {
          int32 dim,
          int32 t_begin,
          const Posterior &labels,
+         int32 t_stride = 1);
+
+  /// This constructor sets "name" to the provided string, sets "indexes" with
+  /// n=0, x=0 and t from t_begin to (t_begin + t_stride * t_size - 1).
+  /// This is used for unsupervised training and no label is defined.
+  NnetIo(const std::string &name,
+         int32 t_begin,
+         int32 t_end,
          int32 t_stride = 1);
 
   void Swap(NnetIo *other);

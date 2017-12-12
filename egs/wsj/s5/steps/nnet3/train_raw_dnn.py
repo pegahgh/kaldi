@@ -67,6 +67,10 @@ def get_args():
                         dest='num_jobs_compute_prior', default=10,
                         help="The prior computation jobs are single "
                         "threaded and run on the CPU")
+    parser.add_argument("--trainer.lrate-skd", type=str,
+                        dest='lrate_skd', default="exp",
+                        choices=["exp", "step"],
+                        help="learning rate schedule")
 
     # Parameters for the optimization
     parser.add_argument("--trainer.optimization.minibatch-size",
@@ -116,10 +120,11 @@ def process_args(args):
         raise Exception("--egs.frames-per-eg should have a minimum value of 1")
 
     if not common_train_lib.validate_minibatch_size_str(args.minibatch_size):
-        raise Exception("--trainer.optimization.minibatch-size has an invalid value")
+        raise Exception(
+            "--trainer.optimization.minibatch-size has an invalid value")
 
     if (not os.path.exists(args.dir)
-            or not os.path.exists(args.dir+"/configs")):
+            or not os.path.exists(args.dir + "/configs")):
         raise Exception("This scripts expects {0} to exist and have a configs "
                         "directory which is the output of "
                         "make_configs.py script")
@@ -195,12 +200,11 @@ def train(args, run_opts):
     left_context = model_left_context
     right_context = model_right_context
 
-
     # Initialize as "raw" nnet, prior to training the LDA-like preconditioning
     # matrix.  This first config just does any initial splicing that we do;
     # we do this as it's a convenient way to get the stats for the 'lda-like'
     # transform.
-    if (args.stage <= -5) and os.path.exists(args.dir+"/configs/init.config"):
+    if (args.stage <= -5) and os.path.exists(args.dir + "/configs/init.config"):
         logger.info("Initializing the network for computing the LDA stats")
         common_lib.execute_command(
             """{command} {dir}/log/nnet_init.log \
@@ -271,7 +275,7 @@ def train(args, run_opts):
     # use during decoding
     common_train_lib.copy_egs_properties_to_exp_dir(egs_dir, args.dir)
 
-    if args.stage <= -3 and os.path.exists(args.dir+"/configs/init.config"):
+    if args.stage <= -3 and os.path.exists(args.dir + "/configs/init.config"):
         logger.info('Computing the preconditioning matrix for input features')
 
         train_lib.common.compute_preconditioning_matrix(
@@ -330,13 +334,16 @@ def train(args, run_opts):
                                * float(iter) / num_iters)
 
         if args.stage <= iter:
-            lrate = common_train_lib.get_learning_rate(iter, current_num_jobs,
-                                                       num_iters,
-                                                       num_archives_processed,
-                                                       num_archives_to_process,
-                                                       args.initial_effective_lrate,
-                                                       args.final_effective_lrate)
-
+            if args.lrate_skd == "exp":
+                lrate = common_train_lib.get_learning_rate(iter, current_num_jobs,
+                                                           num_iters,
+                                                           num_archives_processed,
+                                                           num_archives_to_process,
+                                                           args.initial_effective_lrate,
+                                                           args.final_effective_lrate)
+            else:
+                lrate = (args.initial_effective_lrate * current_num_jobs
+                         * pow(0.2, min(2, (iter / (num_iters / 3)))))
             shrinkage_value = 1.0 - (args.proportional_shrink * lrate)
             if shrinkage_value <= 0.5:
                 raise Exception("proportional-shrink={0} is too large, it gives "
@@ -373,7 +380,7 @@ def train(args, run_opts):
                 # do a clean up everything but the last 2 models, under certain
                 # conditions
                 common_train_lib.remove_model(
-                    args.dir, iter-2, num_iters, models_to_combine,
+                    args.dir, iter - 2, num_iters, models_to_combine,
                     args.preserve_model_interval,
                     get_raw_nnet_from_am=False)
 

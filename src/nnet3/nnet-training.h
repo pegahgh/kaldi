@@ -43,6 +43,7 @@ struct NnetTrainerOptions {
   std::string read_cache;
   std::string write_cache;
   bool binary_write_cache;
+  bool compute_unsup_obj;
   BaseFloat max_param_change;
   NnetOptimizeOptions optimize_config;
   NnetComputeOptions compute_config;
@@ -58,6 +59,7 @@ struct NnetTrainerOptions {
       backstitch_training_interval(1),
       batchnorm_stats_scale(0.8),
       binary_write_cache(true),
+      compute_unsup_obj(false),
       max_param_change(2.0) { }
   void Register(OptionsItf *opts) {
     opts->Register("store-component-stats", &store_component_stats,
@@ -104,7 +106,10 @@ struct NnetTrainerOptions {
                    "the cached computation.");
     opts->Register("binary-write-cache", &binary_write_cache, "Write "
                    "computation cache in binary mode");
-
+    opts->Register("compute-unsup-obj", &compute_unsup_obj,
+                   "If true, the unsupervised objective is computed, which  minimizes "
+                   "kl-dirvergence between the posterior of pairs of consequtive "
+                   "examples in output.");
     // register the optimization options with the prefix "optimization".
     ParseOptions optimization_opts("optimization", opts);
     optimize_config.Register(&optimization_opts);
@@ -273,6 +278,37 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
                               BaseFloat *tot_weight,
                               BaseFloat *tot_objf);
 
+/**
+  This function computes the kl-divergence function between two consequtive
+  rows of output, that are output posteriors for two pertubed version of same
+  input example.
+
+  @param [in] output_name   The name of the output node (e.g. "output"), used to
+                            look up the output in the NnetComputer object.
+  @param [in] supply_deriv   If this is true, this function will compute the
+                             derivative of the objective function and supply it
+                             to the network using the function
+                             NnetComputer::AcceptOutputDeriv
+  @param [in,out] computer   The NnetComputer object, from which we get the
+                             output using GetOutput and to which we may supply
+                             the derivatives using AcceptOutputDeriv.
+  @param [out] tot_weight    The total weight of the training examples.  In the
+                             kLinear case, this is the sum of the supervision
+                             matrix; in the kQuadratic case, it is the number of
+                             rows of the supervision matrix.  In order to make
+                             it possible to weight samples with quadratic
+                             objective functions, we may at some point make it
+                             possible for the supervision matrix to have an
+                             extra column containing weights.  At the moment,
+                             this is not supported.
+  @param [out] tot_objf      The total objective function; divide this by the
+                             tot_weight to get the normalized objective function.
+*/
+void ComputeKlObjectiveFunction(const std::string &output_name,
+                                bool supply_deriv,
+                                NnetComputer *computer,
+                                BaseFloat *tot_weight,
+                                BaseFloat *tot_objf);
 
 
 } // namespace nnet3

@@ -179,9 +179,15 @@ void NnetTrainer::ProcessOutputs(bool is_backstitch_step2,
       ObjectiveType obj_type = nnet_->GetNode(node_index).u.objective_type;
       BaseFloat tot_weight, tot_objf;
       bool supply_deriv = true;
-      ComputeObjectiveFunction(io.features, obj_type, io.name,
-                               supply_deriv, computer,
-                               &tot_weight, &tot_objf);
+      if (config_.compute_unsup_obj) {
+        ComputeKlObjectiveFunction(io.name,
+                                   supply_deriv, computer,
+                                   &tot_weight, &tot_objf);
+      } else {
+        ComputeObjectiveFunction(io.features, obj_type, io.name,
+                                 supply_deriv, computer,
+                                 &tot_weight, &tot_objf);
+      }
       objf_info_[io.name + suffix].UpdateStats(io.name + suffix,
                                       config_.print_interval,
                                       num_minibatches_processed_,
@@ -416,7 +422,37 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
   }
 }
 
+void ComputeKlObjectiveFunction(const std::string &output_name,
+                                bool supply_deriv,
+                                NnetComputer *computer,
+                                BaseFloat *tot_weight,
+                                BaseFloat *tot_objf) {
+  const CuMatrixBase<BaseFloat> &output = computer->GetOutput(output_name);
+  CuMatrix<BaseFloat> output_exp(output);
+  // Compute lambda-divergence for consequtive outputs correspond to
+  // similar examples.
+  // we use Jensen-Shannon divergence, defined by
+  // D = 0.5(KL(P,M) + KL(Q,M) , where M = 0.5(P+Q)
+  // We expect output to contain log-posterior.
+  output_exp.ApplyExp();
+  CuMatrix<BaseFloat> avg_post(output_exp);
+  avg_post.RowRange(0, output.NumRows() - 1).AddMat(1.0,
+    avg_post.RowRange(1, output.NumRows() - 1)); // even row of avg_post contains
+                                               // average posteriors for
+                                               // consequtive examples(0,2,4,..).
+  avg_post.Scale(0.5);
+  for (int32 r = 0; r < output.NumRows() / 2; r++)
+     avg_post.RowRange(2 * r + 1, 1).CopyFromMat(avg_post.RowRange(2 * r, 1));
 
+  (*tot_weight) = avg_post.Sum();
+  (*tot_objf) = TraceMatMat(output, avg_post, kTrans);
+
+  if (supply_deriv) {
+    //CuMatrix<BaseFloat> output_deriv(avg_post);
+    //avg_post.CopyToMat(&output_deriv);
+    computer->AcceptInput(output_name, &avg_post);
+  }
+}
 
 } // namespace nnet3
 } // namespace kaldi
