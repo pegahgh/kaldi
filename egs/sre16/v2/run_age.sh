@@ -108,7 +108,7 @@ fi
 # noise, music, and babble, and combined it with the clean data.
 # The combined list will be used to train the xvector DNN.  The SRE
 # subset will be used to train the PLDA model.
-if [ $stage -le 2 ] && $use_augmet; then
+if [ $stage -le 2 ] && $use_augment; then
   if false; then #100
   utils/data/get_utt2num_frames.sh --nj 40 --cmd "$train_cmd" $data
   frame_shift=0.01
@@ -279,6 +279,8 @@ if [ $stage -le 6 ]; then
     --regression-regularize $regression_regularize \
     --valid-uttlist ${train_data}/${fold_index}/cv_uttlist
 fi
+
+cp $nnet_dir/1/egs/temp/age2int $nnet_dir/${fold_index}/.
 
 if [ $stage -le 7 ]; then
   # The SRE16 test data for test.

@@ -2477,10 +2477,16 @@ void ScaleAndOffsetComponent::InitFromConfig(ConfigLine *cfl) {
   if (block_dim <= 0 || dim_ % block_dim != 0) {
     KALDI_ERR << "Invalid block-dim: " << cfl->WholeLine();
   }
+  BaseFloat scale_value = 1.0,
+    offset_value = 0.0;
+  cfl->GetValue("scale", &scale_value);
+  cfl->GetValue("offset", &offset_value);
+
   cfl->GetValue("rank", &rank);
   scales_.Resize(block_dim);
-  scales_.Set(1.0);
+  scales_.Set(scale_value);
   offsets_.Resize(block_dim);
+  offsets_.Set(offset_value);
   // offsets are all zero when initialized.
   if (cfl->HasUnusedValues())
     KALDI_ERR << "Could not process these elements in initializer: "

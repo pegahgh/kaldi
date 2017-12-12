@@ -47,6 +47,7 @@ class XconfigFftFilterLayer(XconfigLayerBase):
                         'num-filters' : 100,
                         'sin-transform-file' : '',
                         'cos-transform-file' : '',
+                        'scale': 1.0,
                         'half-fft-range' : False} # l2-regularize and min-param-value
                                                    # and max-param-value affects
                                                    # layers affine layer.
@@ -138,6 +139,7 @@ class XconfigFftFilterLayer(XconfigLayerBase):
         fft_dim = (2**(input_dim-1).bit_length())
         cur_dim = input_dim
         cur_node = input_desc
+        scale = self.config['scale']
         configs = []
         for nonlinearity in nonlinearities:
             if nonlinearity == 'preprocess':
@@ -258,8 +260,8 @@ class XconfigFftFilterLayer(XconfigLayerBase):
                                'component={0}.norm.batch '
                                'input={0}.norm.log'.format(self.name))
                 configs.append('component name={0}.norm.so type=ScaleAndOffsetComponent '
-                               'dim={1} max-change=0.5 '
-                               ''.format(self.name, cur_dim))
+                               'dim={1} max-change=0.5 scale={2}'
+                               ''.format(self.name, cur_dim, scale))
                 configs.append('component-node name={0}.norm.so component={0}.norm.so '
                                'input={0}.norm.batch '.format(self.name))
                 configs.append('component name={0}.norm.exp type=ExpComponent dim={1} '
