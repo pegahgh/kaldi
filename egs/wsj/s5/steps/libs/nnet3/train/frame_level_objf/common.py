@@ -32,7 +32,8 @@ def train_new_models(dir, iter, srand, num_jobs,
                      run_opts, frames_per_eg=-1,
                      min_deriv_time=None, max_deriv_time_relative=None,
                      use_multitask_egs=False,
-                     backstitch_training_scale=0.0, backstitch_training_interval=1):
+                     backstitch_training_scale=0.0, backstitch_training_interval=1,
+                     unsup_regularizer=0.0):
     """ Called from train_one_iteration(), this model does one iteration of
     training with 'num_jobs' jobs, and writes files like
     exp/tdnn_a/24.{1,2,3,..<num_jobs>}.raw
@@ -101,7 +102,7 @@ def train_new_models(dir, iter, srand, num_jobs,
 
         if image_augmentation_opts:
             image_augmentation_cmd = (
-                'nnet3-egs-augment-image --srand={srand} {aug_opts} ark:- ark:- |'.format(
+                'nnet3-egs-augment-image-unsup --srand={srand} {aug_opts} ark:- ark:- |'.format(
                     srand=k+srand,
                     aug_opts=image_augmentation_opts))
         else:
@@ -137,7 +138,7 @@ def train_new_models(dir, iter, srand, num_jobs,
             """{command} {train_queue_opt} {dir}/log/train.{iter}.{job}.log \
                     nnet3-train {parallel_train_opts} {cache_io_opts} \
                      {verbose_opt} --print-interval=10 \
-                    --momentum={momentum} \
+                    --momentum={momentum} --unsup-regularizer={unsup_regularizer} \
                     --max-param-change={max_param_change} \
                     --backstitch-training-scale={backstitch_training_scale} \
                     --l2-regularize-factor={l2_regularize_factor} \
@@ -159,7 +160,8 @@ def train_new_models(dir, iter, srand, num_jobs,
                 backstitch_training_interval=backstitch_training_interval,
                 deriv_time_opts=" ".join(deriv_time_opts),
                 raw_model=raw_model_string,
-                egs_rspecifier=egs_rspecifier),
+                egs_rspecifier=egs_rspecifier,
+                unsup_regularizer=unsup_regularizer),
             require_zero_status=True)
 
         threads.append(thread)
@@ -179,7 +181,8 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                         get_raw_nnet_from_am=True,
                         use_multitask_egs=False,
                         backstitch_training_scale=0.0, backstitch_training_interval=1,
-                        compute_per_dim_accuracy=False):
+                        compute_per_dim_accuracy=False,
+                        unsup_regularizer=0.0):
     """ Called from steps/nnet3/train_*.py scripts for one iteration of neural
     network training
 
@@ -278,7 +281,8 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                      image_augmentation_opts=image_augmentation_opts,
                      use_multitask_egs=use_multitask_egs,
                      backstitch_training_scale=backstitch_training_scale,
-                     backstitch_training_interval=backstitch_training_interval)
+                     backstitch_training_interval=backstitch_training_interval,
+                     unsup_regularizer=unsup_regularizer)
 
     [models_to_average, best_model] = common_train_lib.get_successful_models(
          num_jobs, '{0}/log/train.{1}.%.log'.format(dir, iter))

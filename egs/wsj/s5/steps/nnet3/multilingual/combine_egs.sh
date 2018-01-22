@@ -24,9 +24,10 @@ samples_per_iter=400000 # this is the target number of egs in each archive of eg
                         # it egs_per_iter. This is just a guideline; it will pick
                         # a number that divides the number of samples in the
                         # entire data.
-lang2weight=            # array of weights one per input languge to scale example's output
+lang2weight=            # comma-separated array of weights one per input languge to scale example's output
                         # w.r.t its input language during training.
 stage=0
+use_check_params=true  # if true, required parameters (specific to ASR) are checked.
 
 echo "$0 $@"  # Print the command line for logging
 
@@ -55,10 +56,14 @@ combine_scp_list=
 
 # read paramter from $egs_dir[0]/info and cmvn_opts
 # to write in multilingual egs_dir.
-check_params="info/feat_dim info/ivector_dim info/left_context info/right_context info/frames_per_eg cmvn_opts"
-ivec_dim=`cat ${args[0]}/info/ivector_dim`
-if [ $ivec_dim -ne 0 ];then check_params="$check_params info/final.ie.id"; fi
+if $use_check_params; then
+  check_params=""
+else
+  check_params="info/feat_dim info/ivector_dim info/left_context info/right_context info/frames_per_eg cmvn_opts"
+  ivec_dim=`cat ${args[0]}/info/ivector_dim`
 
+  if [ $ivec_dim -ne 0 ];then check_params="$check_params info/final.ie.id"; fi
+fi
 for param in $check_params; do
     cat ${args[0]}/$param > $megs_dir/$param || exit 1;
 done

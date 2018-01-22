@@ -55,7 +55,7 @@ void ScaleAndRenameOutput(BaseFloat weight,
   // scale the supervision weight for egs
   for (int32 i = 0; i < eg->io.size(); i++)
     if (eg->io[i].name == "output")
-      if (weight != 0.0 && weight != 1.0)
+      if (weight != 1.0)
         eg->io[i].features.Scale(weight);
   // rename output io name to 'new_output_name'.
   RenameIoNames("output", new_output_name, eg);
@@ -388,7 +388,7 @@ int main(int argc, char *argv[]) {
       // for the case when the --outputs or --weights option is specified
       // (only for multilingual training).
       BaseFloat weight = 1.0;
-      std::string new_output_name;
+      std::string new_output_name = "output";
       if (modify_eg_output) { // This branch is only taken for multilingual training.
         eg_modified_output = eg_orig;
         if (!eg_weight_rspecifier.empty()) {

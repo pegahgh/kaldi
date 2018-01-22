@@ -60,6 +60,7 @@ void NnetTrainer::Train(const NnetExample &eg) {
   ComputationRequest request;
   GetComputationRequest(*nnet_, eg, need_model_derivative,
                         config_.store_component_stats,
+                        true,
                         &request);
   const NnetComputation *computation = compiler_.Compile(request);
 
@@ -179,14 +180,21 @@ void NnetTrainer::ProcessOutputs(bool is_backstitch_step2,
       ObjectiveType obj_type = nnet_->GetNode(node_index).u.objective_type;
       BaseFloat tot_weight, tot_objf;
       bool supply_deriv = true;
-      if (config_.compute_unsup_obj) {
-        ComputeKlObjectiveFunction(io.name,
-                                   supply_deriv, computer,
+      std::string unsup_suffix = "-unsup",
+        unsup_name = io.name + unsup_suffix;
+      ComputeObjectiveFunction(io.features, obj_type, io.name,
+                               supply_deriv, computer,
+                               &tot_weight, &tot_objf);
+      if (config_.unsup_regularize_factor > 0.0) {
+        ComputeKlObjectiveFunction(unsup_name,
+                                   supply_deriv,
+                                   config_.unsup_regularize_factor,
+                                   computer,
                                    &tot_weight, &tot_objf);
-      } else {
-        ComputeObjectiveFunction(io.features, obj_type, io.name,
-                                 supply_deriv, computer,
-                                 &tot_weight, &tot_objf);
+        objf_info_[unsup_name].UpdateStats(unsup_name,
+                                          config_.print_interval,
+                                          num_minibatches_processed_,
+                                          tot_weight, tot_objf);
       }
       objf_info_[io.name + suffix].UpdateStats(io.name + suffix,
                                       config_.print_interval,
@@ -424,6 +432,7 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
 
 void ComputeKlObjectiveFunction(const std::string &output_name,
                                 bool supply_deriv,
+                                BaseFloat unsup_regularize,
                                 NnetComputer *computer,
                                 BaseFloat *tot_weight,
                                 BaseFloat *tot_objf) {
@@ -443,7 +452,7 @@ void ComputeKlObjectiveFunction(const std::string &output_name,
   avg_post.Scale(0.5);
   for (int32 r = 0; r < output.NumRows() / 2; r++)
      avg_post.RowRange(2 * r + 1, 1).CopyFromMat(avg_post.RowRange(2 * r, 1));
-
+  avg_post.Scale(unsup_regularize);
   (*tot_weight) = avg_post.Sum();
   (*tot_objf) = TraceMatMat(output, avg_post, kTrans);
 

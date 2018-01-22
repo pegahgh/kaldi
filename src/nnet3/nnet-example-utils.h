@@ -61,6 +61,7 @@ void GetComputationRequest(const Nnet &nnet,
                            const NnetExample &eg,
                            bool need_model_derivative,
                            bool store_component_stats,
+                           bool use_unsup,
                            ComputationRequest *computation_request);
 
 

@@ -43,7 +43,7 @@ struct NnetTrainerOptions {
   std::string read_cache;
   std::string write_cache;
   bool binary_write_cache;
-  bool compute_unsup_obj;
+  BaseFloat unsup_regularize_factor;
   BaseFloat max_param_change;
   NnetOptimizeOptions optimize_config;
   NnetComputeOptions compute_config;
@@ -59,7 +59,7 @@ struct NnetTrainerOptions {
       backstitch_training_interval(1),
       batchnorm_stats_scale(0.8),
       binary_write_cache(true),
-      compute_unsup_obj(false),
+      unsup_regularize_factor(0.0),
       max_param_change(2.0) { }
   void Register(OptionsItf *opts) {
     opts->Register("store-component-stats", &store_component_stats,
@@ -106,8 +106,8 @@ struct NnetTrainerOptions {
                    "the cached computation.");
     opts->Register("binary-write-cache", &binary_write_cache, "Write "
                    "computation cache in binary mode");
-    opts->Register("compute-unsup-obj", &compute_unsup_obj,
-                   "If true, the unsupervised objective is computed, which  minimizes "
+    opts->Register("unsup-regularizer", &unsup_regularize_factor,
+                   "If non-zero, the unsupervised objective is computed, which  minimizes "
                    "kl-dirvergence between the posterior of pairs of consequtive "
                    "examples in output.");
     // register the optimization options with the prefix "optimization".
@@ -306,6 +306,7 @@ void ComputeObjectiveFunction(const GeneralMatrix &supervision,
 */
 void ComputeKlObjectiveFunction(const std::string &output_name,
                                 bool supply_deriv,
+                                BaseFloat unsup_regularize,
                                 NnetComputer *computer,
                                 BaseFloat *tot_weight,
                                 BaseFloat *tot_objf);

@@ -212,11 +212,12 @@ void GetComputationRequest(const Nnet &nnet,
                            const NnetExample &eg,
                            bool need_model_derivative,
                            bool store_component_stats,
+                           bool use_unsup,
                            ComputationRequest *request) {
   request->inputs.clear();
   request->inputs.reserve(eg.io.size());
   request->outputs.clear();
-  request->outputs.reserve(eg.io.size());
+  request->outputs.reserve(eg.io.size() * 2);
   request->need_model_derivative = need_model_derivative;
   request->store_component_stats = store_component_stats;
   for (size_t i = 0; i < eg.io.size(); i++) {
@@ -235,6 +236,15 @@ void GetComputationRequest(const Nnet &nnet,
     io_spec.name = name;
     io_spec.indexes = io.indexes;
     io_spec.has_deriv = nnet.IsOutputNode(node_index) && need_model_derivative;
+    if (use_unsup && nnet.IsOutputNode(node_index)) {
+      size_t cur_size = request->outputs.size();
+      request->outputs.resize(cur_size + 1);
+      IoSpecification &io_spec = request->outputs[cur_size-1],
+        &io_spec_unsup = request->outputs[cur_size];
+      io_spec_unsup = io_spec;
+      io_spec_unsup.name = name + "-unsup";
+      io_spec_unsup.has_deriv = true;
+    }
   }
   // check to see if something went wrong.
   if (request->inputs.empty())

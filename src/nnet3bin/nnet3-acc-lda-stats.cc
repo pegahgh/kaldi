@@ -37,8 +37,8 @@ class NnetLdaStatsAccumulator {
 
   void AccStats(const NnetExample &eg) {
     ComputationRequest request;
-    bool need_backprop = false, store_stats = false;
-    GetComputationRequest(nnet_, eg, need_backprop, store_stats, &request);
+    bool need_backprop = false, store_stats = false, use_unsup = false;
+    GetComputationRequest(nnet_, eg, need_backprop, store_stats, use_unsup, &request);
     const NnetComputation &computation = *(compiler_.Compile(request));
     NnetComputeOptions options;
     if (GetVerboseLevel() >= 3)

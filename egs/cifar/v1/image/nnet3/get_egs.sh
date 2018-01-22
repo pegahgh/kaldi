@@ -12,6 +12,7 @@ egs_per_archive=25000
 train_subset_egs=5000
 test_mode=false
 stage=0
+generate_egs_scp=false
 # end configuration section
 
 echo "$0 $@"  # Print the command line for logging
@@ -98,11 +99,16 @@ if ! [ "$num_classes" -eq "$num_classes_test" ]; then
 fi
 
 if [ $stage -le 0 ]; then
+  if $generate_egs_scp; then
+    train_diagnostic_output="ark,scp:$dir/train_diagnostic.egs,$dir/train_diagnostic.scp"
+  else
+    train_diagnostic_output="ark:$dir/train_diagnostic.egs"
+  fi
   $cmd $dir/log/get_train_diagnostic_egs.log \
        ali-to-post "ark:filter_scp.pl $dir/train_subset_ids.txt $train/labels.txt|" ark:- \| \
        post-to-smat --dim=$num_classes ark:- ark:- \| \
        nnet3-get-egs-simple input="scp:filter_scp.pl $dir/train_subset_ids.txt $train/images.scp|" \
-       output=ark:- ark:$dir/train_diagnostic.egs
+       output=ark:- $train_diagnostic_output
 fi
 
 
@@ -111,11 +117,16 @@ if [ $stage -le 1 ]; then
   # we use the same filenames as the regular training script, but
   # the 'valid_diagnostic' egs are actually used as the test or dev
   # set.
+  if $generate_egs_scp; then
+    valid_diagnostic_output="ark,scp:$dir/valid_diagnostic.egs,$dir/valid_diagnostic.scp"
+  else
+    valid_diagnostic_output="ark:$dir/valid_diagnostic.egs"
+  fi
   $cmd $dir/log/get_test_or_dev_egs.log \
        ali-to-post ark:$test/labels.txt ark:- \| \
        post-to-smat --dim=$num_classes ark:- ark:- \| \
        nnet3-get-egs-simple input=scp:$test/images.scp \
-       output=ark:- ark:$dir/valid_diagnostic.egs
+       output=ark:- $valid_diagnostic_output
 fi
 
 # Now work out the split of the training data.
@@ -132,17 +143,32 @@ if [ $stage -le 2 ]; then
   image/split_image_dir.sh $train $num_archives
 
   sdata=$train/split$num_archives
-
+  if $generate_egs_scp; then
+    egs_output="ark,scp:$dir/egs.JOB.ark,$dir/egs.JOB.scp"
+  else
+    egs_output="ark:$dir/egs.JOB.ark"
+  fi
   $cmd JOB=1:$num_archives $dir/log/get_egs.JOB.log \
        ali-to-post ark:$sdata/JOB/labels.txt ark:- \| \
        post-to-smat --dim=$num_classes ark:- ark:- \| \
        nnet3-get-egs-simple input=scp:$sdata/JOB/images.scp \
-        output=ark:- ark:$dir/egs.JOB.ark
+        output=ark:- $egs_output
 fi
 
 rm $dir/train_subset_ids.txt 2>/dev/null || true
 
 ln -sf train_diagnostic.egs $dir/combine.egs
+
+if $generate_egs_scp; then
+  ln -sf train_diagnostic.scp $dir/combine.scp
+fi
+
+if $generate_egs_scp; then
+  for j in $(seq 1 $num_archives); do
+    cat $dir/egs.$j.scp || exit 1;
+  done > $dir/egs.scp
+  for f in $dir/egs.*.scp; do rm $f; done
+fi
 
 echo $num_archives >$dir/info/num_archives
 
