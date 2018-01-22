@@ -115,13 +115,15 @@ if [ $stage -le 0 ]; then
   utils/filter_scp.pl $temp/train_subset_uttlist <$temp/utt2num_frames.train > $temp/utt2num_frames.train_subset
   # Create a mapping from utterance to age ID (an integer)
   #awk -v id=0 '{print $1, id++}' $data/spk2utt > $temp/spk2int
-  age_min=`cat $data/utt2age | cut -d' ' -f2 | sort -n | head -1`
-  age_max=`cat $data/utt2age | cut -d' ' -f2 | sort -n | tail -1`
-  echo $age_min > $data/age_offset
-  echo $age_max > $data/age_max
-  for i in `seq $age_min $age_max`;do echo $i $[$i-$age_min]; done > $temp/age2int
-  #utils/sym2int.pl -f 2 $temp/age2int $data/utt2age > $temp/utt2int
-  utils/apply_map.pl -f 2 $temp/age2int < $data/utt2age > $temp/utt2int
+  if [ ! -f $dir/age2class ]; then
+    age_min=`cat $data/utt2age | cut -d' ' -f2 | sort -n | head -1`
+    age_max=`cat $data/utt2age | cut -d' ' -f2 | sort -n | tail -1`
+    echo $age_min > $data/age_offset
+    echo $age_max > $data/age_max
+    for i in `seq $age_min $age_max`;do echo $i $[$i-$age_min]; done > $dir/age2class
+  fi
+  #utils/sym2int.pl -f 2 $temp/age2class $data/utt2age > $temp/utt2int
+  utils/apply_map.pl -f 2 $dir/age2class < $data/utt2age > $temp/utt2int
   utils/filter_scp.pl $temp/utt2num_frames.train $temp/utt2int > $temp/utt2int.train
   utils/filter_scp.pl $temp/utt2num_frames.valid $temp/utt2int > $temp/utt2int.valid
   utils/filter_scp.pl $temp/utt2num_frames.train_subset $temp/utt2int > $temp/utt2int.train_subset
@@ -235,9 +237,9 @@ fi
 
 if [ $stage -le 4 ]; then
   echo "$0: Shuffling order of archives on disk"
-  $cmd --max-jobs-run $nj JOB=1:$num_train_archives $dir/log/shuffle.JOB.log \
-    nnet3-shuffle-egs --srand=JOB ark:$dir/egs_temp.JOB.ark \
-    ark,scp:$dir/egs.JOB.ark,$dir/egs.JOB.scp || exit 1;
+  #$cmd --max-jobs-run $nj JOB=1:$num_train_archives $dir/log/shuffle.JOB.log \
+  #  nnet3-shuffle-egs --srand=JOB ark:$dir/egs_temp.JOB.ark \
+  #  ark,scp:$dir/egs.JOB.ark,$dir/egs.JOB.scp || exit 1;
   $cmd --max-jobs-run $nj JOB=1:$num_diagnostic_archives $dir/log/train_subset_shuffle.JOB.log \
     nnet3-shuffle-egs --srand=JOB ark:$dir/train_subset_egs_temp.JOB.ark \
     ark,scp:$dir/train_diagnostic_egs.JOB.ark,$dir/train_diagnostic_egs.JOB.scp || exit 1;

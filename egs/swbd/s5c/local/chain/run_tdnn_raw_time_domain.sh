@@ -1,11 +1,8 @@
 #!/bin/bash
-# This script can be used for joint feature extraction and classification training.
-# It used raw frame extracted using no preprocessing and
-# no MVN on waveform.
-# Pre-processing (pre-emphasis and windowing) is done in the 1st layer in the network.
-# Positive weight constraint is applied on the weights in affine transform correspond to filters.
-# Input is also normalized globally using batchnorm followed by scale and offset per dim
-# in log-domain.
+# _v5 is as v3 and designed to extract log-energy features and train model
+# and its training params is the same as run_tdnn_7k.sh
+# _v3 is as _v2 but it has proportional shrink.
+# run_tdnn_7k.sh is like run_tdnn_7h.sh but batchnorm components instead of renorm
 
 # local/chain/compare_wer_general.sh tdnn_7h_sp/ tdnn_7k_sp/
 # System                tdnn_7h_sp/ tdnn_7k_sp/
@@ -22,11 +19,11 @@ set -e
 
 # configs for 'chain'
 affix=
-stage=13
+stage=12
 train_stage=-10
 get_egs_stage=-10
 speed_perturb=true
-dir=exp/chain/tdnn_raw_freq_domain_cnn_v5_small_lrf # Note: _sp will get added to this if $speed_perturb == true.
+dir=exp/chain/tdnn_7k_raw_time_domain  # Note: _sp will get added to this if $speed_perturb == true.
 decode_iter=
 decode_nj=50
 proportional_shrink=1.0
@@ -42,13 +39,13 @@ num_jobs_final=16
 minibatch_size=128
 frames_per_eg=150
 remove_egs=false
-common_egs_dir=exp/chain/cnn_tdnn_energy_preprocess_affine_sp/egs
 #common_egs_dir=exp/chain/cnn_tdnn_7k_raw_nin_new_train_setup_sp/egs
+common_egs_dir=exp/chain/tdnn_7k_raw_attention_sp/egs
 #common_egs_dir=exp/chain/cnn_tdnn_lstm_raw_longer_v2_new_cnn_conf_ld5_sp/egs
 xent_regularize=0.1
-iter_to_average=0
 test_online_decoding=false  # if true, it will run the last decoding stage.
-num_filters=100
+l1_regularize=0.0
+fft_feat_dim=0
 # End configuration section.
 echo "$0 $@"  # Print the command line for logging
 
@@ -119,17 +116,18 @@ if [ $stage -le 11 ]; then
       --cmd "$train_cmd" 7000 data/$train_set $lang $ali_dir $treedir
 fi
 
-if [ $stage -le 12 ]; then
+if [ $stage -le 11 ]; then
   echo "$0: generate raw features."
   for data_set in $train_set eval2000 rt03 train_dev;do
-    utils/copy_data_dir.sh data/$data_set data/${data_set}_raw_no_mvn
+    utils/copy_data_dir.sh data/$data_set data/${data_set}_hires_raw
     steps/make_raw_feats.sh --nj 120 --cmd "$train_cmd" \
-      --raw-config conf/raw_no_mvn.conf \
-      data/${data_set}_raw_no_mvn
+      --raw-config conf/raw.conf \
+      data/${data_set}_hires_raw
   done
 fi
 
-if [ $stage -le 13 ]; then
+
+if [ $stage -le 12 ]; then
   echo "$0: creating neural net configs using the xconfig parser";
 
   num_targets=$(tree-info $treedir/tree |grep num-pdfs|awk '{print $2}')
@@ -143,9 +141,12 @@ if [ $stage -le 13 ]; then
   # please note that it is important to have input layer with the name=input
   # as the layer immediately preceding the fixed-affine-layer to enable
   # the use of short notation for the descriptor
-  preprocess-fft-abs-lognorm-affine-log-layer name=raw0 input=Append(-1,0,1) cos-transform-file=$dir/configs/cos_transform.mat sin-transform-file=$dir/configs/sin_transform.mat num-filters=$num_filters dim=80 half-fft-range=true
-  conv-relu-batchnorm-layer name=cnn1 height-in=$num_filters height-out=50 time-offsets=-1,0,1 height-offsets=-1,0,1 num-filters-out=32 height-subsample-out=2 learning-rate-factor=0.34 max-change=0.25
-  relu-batchnorm-layer name=tdnn1 input=Append(-1,0,1,ReplaceIndex(ivector, t, 0)) dim=625
+  #fixed-affine-layer name=lda input=Append(-1,0,1,ReplaceIndex(ivector, t, 0)) affine-transform-file=$dir/configs/lda.mat
+  preprocess-tconv-abs-log-nin-affine-layer name=tdnn0 input=Append(-1,0,1,2,3) nin-mid-dim=75 frames-left-context=1 frames-right-context=0 sub-frames-per-frame=8 frame-dim=80 max-shift=0.2
+  relu-renorm-layer name=ivec1 input=ReplaceIndex(ivector, t, 0) dim=100
+  # the first splicing is moved before the lda layer, so no splicing here
+  relu-batchnorm-layer name=tdnn1 dim=625 input=Append(tdnn0, ivec1)
+
   relu-batchnorm-layer name=tdnn2 input=Append(-1,0,1) dim=625
   relu-batchnorm-layer name=tdnn3 input=Append(-1,0,1) dim=625
   relu-batchnorm-layer name=tdnn4 input=Append(-3,0,3) dim=625
@@ -173,9 +174,7 @@ EOF
   steps/nnet3/xconfig_to_configs.py --xconfig-file $dir/configs/network.xconfig --config-dir $dir/configs/
 fi
 
-fft_feat_dim=$(nnet3-info $dir/configs/ref.raw | grep cosine | grep component-node | head -n 1 | awk '{print $5}' | cut -d= -f2)
-
-if [ $stage -le 14 ]; then
+if [ $stage -le 13 ]; then
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $dir/egs/storage ]; then
     utils/create_split_dir.pl \
      /export/b0{5,6,7,8}/$USER/kaldi-data/egs/swbd-$(date +'%m_%d_%H_%M')/s5c/$dir/egs/storage $dir/egs/storage
@@ -183,7 +182,6 @@ if [ $stage -le 14 ]; then
 
   steps/nnet3/chain/train.py --stage $train_stage \
     --chain.fft-feat-dim $fft_feat_dim \
-    --trainer.iter-to-average $iter_to_average \
     --cleanup.preserve-model-interval 10 \
     --cmd "$decode_cmd" \
     --feat.online-ivector-dir exp/nnet3/ivectors_${train_set} \
@@ -191,6 +189,7 @@ if [ $stage -le 14 ]; then
     --chain.xent-regularize $xent_regularize \
     --chain.leaky-hmm-coefficient 0.1 \
     --chain.l2-regularize 0.00005 \
+    --chain.l1-regularize $l1_regularize \
     --trainer.optimization.shrink-value=1.0 \
     --trainer.optimization.proportional-shrink=$proportional_shrink \
     --chain.apply-deriv-weights false \
@@ -208,14 +207,14 @@ if [ $stage -le 14 ]; then
     --trainer.optimization.final-effective-lrate $final_effective_lrate \
     --trainer.max-param-change $max_param_change \
     --cleanup.remove-egs $remove_egs \
-    --feat-dir data/${train_set}_raw_no_mvn \
+    --feat-dir data/${train_set}_hires_raw \
     --tree-dir $treedir \
-    --lat-dir exp/tri4_lats_nodup${suffix}_snip_edges_f_v2 \
+    --lat-dir exp/tri4_lats_nodup$suffix \
     --dir $dir  || exit 1;
 
 fi
 
-if [ $stage -le 15 ]; then
+if [ $stage -le 14 ]; then
   # Note: it might appear that this $lang directory is mismatched, and it is as
   # far as the 'topo' is concerned, but this script doesn't read the 'topo' from
   # the lang directory.
@@ -228,19 +227,18 @@ iter_opts=
 if [ ! -z $decode_iter ]; then
   iter_opts=" --iter $decode_iter "
 fi
-if [ $stage -le 16 ]; then
+if [ $stage -le 15 ]; then
   rm $dir/.error 2>/dev/null || true
   for decode_set in train_dev eval2000 rt03; do
-  #for decode_set in train_dev; do
       (
       steps/nnet3/decode.sh --acwt 1.0 --post-decode-acwt 10.0 \
           --nj $decode_nj --cmd "$decode_cmd" $iter_opts \
           --online-ivector-dir exp/nnet3/ivectors_${decode_set} \
-          $graph_dir data/${decode_set}_raw_no_mvn \
+          $graph_dir data/${decode_set}_hires_raw \
           $dir/decode_${decode_set}${decode_iter:+_$decode_iter}_sw1_tg || exit 1;
       if $has_fisher; then
           steps/lmrescore_const_arpa.sh --cmd "$decode_cmd" \
-            data/lang_sw1_{tg,fsh_fg} data/${decode_set}_raw_no_mvn \
+            data/lang_sw1_{tg,fsh_fg} data/${decode_set}_hires_raw \
             $dir/decode_${decode_set}${decode_iter:+_$decode_iter}_sw1_{tg,fsh_fg} || exit 1;
       fi
       ) || touch $dir/.error &

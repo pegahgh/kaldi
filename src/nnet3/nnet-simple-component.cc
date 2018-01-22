@@ -2910,8 +2910,6 @@ void ConstantFunctionComponent::UnVectorize(const VectorBase<BaseFloat> &params)
   output_.CopyFromVec(params);
 }
 
-
-
 void NaturalGradientAffineComponent::Read(std::istream &is, bool binary) {
   ReadUpdatableCommon(is, binary);  // Read the opening tag and learning rate
   ExpectToken(is, binary, "<LinearParams>");

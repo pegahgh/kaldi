@@ -70,8 +70,10 @@ config_to_layer = {
         'attention-relu-renorm-layer': xlayers.XconfigAttentionLayer,
         'relu-renorm-attention-layer': xlayers.XconfigAttentionLayer,
         'renorm-component': xlayers.XconfigRenormComponent,
+        'preprocess-fft-abs-norm-lognorm-affine-log-layer': xlayers.XconfigFftFilterLayer,
         'preprocess-fft-abs-lognorm-affine-log-layer': xlayers.XconfigFftFilterLayer,
-        'preprocess-fft-abs-log-layer': xlayers.XconfigFftFilterLayer
+        'preprocess-fft-abs-log-layer': xlayers.XconfigFftFilterLayer,
+        'preprocess-tconv-abs-log-nin-affine-layer': xlayers.XconfigTimeDomainLayer
 }
 
 # Turn a config line and a list of previous layers into

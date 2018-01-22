@@ -27,15 +27,17 @@ fold_index=1
 stage=1
 train_stage=-10
 # random label shift config
-num_delays=3 # number of copies of data with random label shift, augmented to
+num_delays=0 # number of copies of data with random label shift, augmented to
              # original data.
 label_delay=0.05 # age label are shifted by label_delay % of original age
                 # to left or right by 50%
-regression_regularize=0.0001
-use_augment=false # if true, it augment data with different type of noises.
+regression_regularize=0.01
+use_augment=true # if true, it augment data with different type of noises.
 use_new_data=true # if true, train, test and cv data are different.
 
 prior_scale=0.7
+map_threshold=0.0 #  0: uniqu mapping and one class per age.
+                  #     larger threshold is equivalent to more ages per class.
 . parse_options.sh || exit 1;
 
 if [ $stage -le 0 ] && false; then
@@ -163,7 +165,7 @@ if [ $stage -le 2 ] && $use_augment; then
   # Make filterbanks for the augmented data.  Note that we do not compute a new
   # vad.scp file here.  Instead, we use the vad.scp from the clean version of
   # the list.
-  steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+  steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 120 --cmd "$train_cmd" \
     ${data}_aug exp/make_mfcc $mfccdir
 
   # Combine the clean and augmented SRE list.  This is now roughly
@@ -270,17 +272,30 @@ if [ $stage -le 5 ]; then
   done > ${train_data}/${fold_index}/cv_uttlist
 fi
 
+num_epochs=10
+num_repeats=10
+if $use_augment;then
+  num_epochs=5
+  num_repeats=6
+fi
+
+if [ $stage -le 5 ]; then
+  # create a mapping from age to class label
+  local/prepare_age_to_class_map.py --train-label ${train_data}/${fold_index}/train/utt2age \
+    --threshold-coeff $map_threshold  --output-dir $nnet_dir/${fold_index}/egs
+fi
+
+cp $nnet_dir/1/egs/age2class $nnet_dir/${fold_index}/.
+
 if [ $stage -le 6 ]; then
   local/nnet3/xvector/run_xvector_age.sh --stage $train_stage --train-stage -1 \
-    --num-repeats 10 --frames-per-iter 1600000000 --num-epochs 10 \
+    --num-repeats $num_repeats --frames-per-iter 1600000000 --num-epochs $num_epochs \
     --frames-per-iter-diagnostic 100000000 \
     --data ${train_data}/${fold_index}/train --nnet-dir $nnet_dir/${fold_index} \
     --egs-dir $nnet_dir/${fold_index}/egs \
     --regression-regularize $regression_regularize \
     --valid-uttlist ${train_data}/${fold_index}/cv_uttlist
 fi
-
-cp $nnet_dir/1/egs/temp/age2int $nnet_dir/${fold_index}/.
 
 if [ $stage -le 7 ]; then
   # The SRE16 test data for test.
@@ -306,7 +321,7 @@ fi
 if [ $stage -le 9 ]; then
   logistic_dir=$nnet_dir/${fold_index}/logistic_regression
   logistic_mdl=$logistic_dir/final.mdl
-  age2int=$nnet_dir/${fold_index}/age2int
+  age2int=$nnet_dir/${fold_index}/age2class
   if [ ! -f $age2int ]; then echo "$age2int does not exists." && exit 1; fi
   mkdir -p ${logistic_dir}
   mkdir -p ${logistic_dir}/train
