@@ -234,7 +234,7 @@ if [ $stage -le 16 ]; then
     --trainer.optimization.initial-effective-lrate 0.001 \
     --trainer.optimization.final-effective-lrate 0.0001 \
     --trainer.max-param-change 2.0 \
-    --cleanup.remove-egs true \
+    --cleanup.remove-egs false \
     --feat-dir $train_data_dir \
     --tree-dir $tree_dir \
     --lat-dir $lat_dir \

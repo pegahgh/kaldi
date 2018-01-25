@@ -41,7 +41,7 @@ fi
 for f in data/${mic}/${train_set}${ihm_suffix}/utt2spk; do
   if [ ! -f $f ]; then
     echo "$0: expected file $f to exist"
-    exit 1
+    #exit 1
   fi
 done
 

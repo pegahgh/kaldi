@@ -282,6 +282,23 @@ def train(args, run_opts, background_process_handler):
         f.write(str(num_jobs))
 
     config_dir = '{0}/configs'.format(args.dir)
+    if (not os.path.exists("{dir}/configs/init.config".format(dir=args.dir))) and (os.path.exists("{dir}/init.raw".format(dir=args.dir))):
+
+        init_raw_mdl = "{0}/configs/ref.raw".format(args.dir)
+        edit_config = "{0}/configs/edits.config".format(args.dir)
+        if os.path.exists(edit_config):
+            init_raw_mdl = " - \| nnet3-copy --edits-config={edit_config} - {dir}/configs/ref.raw".format(dir=args.dir, edit_config=edit_config)
+
+        common_lib.run_job(
+            """{command} {dir}/log/add_init_raw_for_vars.log \
+                    nnet3-init {dir}/init.raw \
+                    {dir}/configs/layer1.config {init_raw_mdl}""".format(
+                        command=run_opts.command,
+                        dir=args.dir,
+                        init_raw_mdl=init_raw_mdl))
+
+        common_train_lib.add_back_compatibility_info("{0}/configs".format(args.dir),
+                        ref_raw_model="{0}/configs/ref.raw".format(args.dir))
     var_file = '{0}/vars'.format(config_dir)
 
     variables = common_train_lib.parse_generic_config_vars_file(var_file)
@@ -317,8 +334,8 @@ def train(args, run_opts, background_process_handler):
         logger.info("Creating denominator FST")
         chain_lib.create_denominator_fst(args.dir, args.tree_dir, run_opts)
 
-    if (args.stage <= -4):
-        if os.path.exits("{0}/configs/init.config".format(args.dir)):
+    if (args.stage <= -4) and os.path.exists(args.dir+"/configs/init.config"):
+        if os.path.exists("{0}/configs/init.config".format(args.dir)):
             logger.info("Initializing a basic network for estimating "
                       "preconditioning matrix")
             common_lib.run_kaldi_command(
@@ -383,34 +400,23 @@ def train(args, run_opts, background_process_handler):
     logger.info("Copying the properties from {0} to {1}".format(egs_dir, args.dir))
     common_train_lib.copy_egs_properties_to_exp_dir(egs_dir, args.dir)
 
-    if (args.stage <= -2):
-        if os.path.exists("{0}/configs/init.config".format(args.dir)):
-            logger.info('Computing the preconditioning matrix for input features')
+    if (args.stage <= -2) and os.path.exists(args.dir+"/configs/init.config"):
+        logger.info('Computing the preconditioning matrix for input features')
 
-            chain_lib.compute_preconditioning_matrix(
-                args.dir, egs_dir, num_archives, run_opts,
-                max_lda_jobs=args.max_lda_jobs,
-                rand_prune=args.rand_prune)
-        else:
-            # the init.raw updated to specified init_raw_model
-            # after lda computation.
-            logger.info("Initialize the init.raw to be {0}".format(
-                        args.init_raw_model))
-            common_lib.run_kaldi_command(
-                """{command} {dir}/log/nnet_init.log \
-                   nnet3-copy {raw_init} \
-                   {dir}/init.raw""".format(command=run_opts.command,
-                                            raw_init=args.init_raw_model,
-                                            dir=args.dir))
-            logger.info("Computing initial vector for FixedScaleComponent"
-                        ", using priors^{prior_scale} and rescaling to"
-                        " average 1".format(
-                            prior_scale=args.presoftmax_prior_scale_power))
+        chain_lib.compute_preconditioning_matrix(
+            args.dir, egs_dir, num_archives, run_opts,
+            max_lda_jobs=args.max_lda_jobs,
+            rand_prune=args.rand_prune)
 
-            common_train_lib.compute_presoftmax_prior_scale(
-                    args.dir, args.tree_dir, num_jobs, run_opts,
-                    presoftmax_prior_scale_power=args.presoftmax_prior_scale_power,
-                    scale_factor=args.prior_scale_factor)
+        logger.info("Computing initial vector for FixedScaleComponent"
+                    ", using priors^{prior_scale} and rescaling to"
+                    " average 1".format(
+                        prior_scale=args.presoftmax_prior_scale_power))
+
+        common_train_lib.compute_presoftmax_prior_scale(
+                args.dir, args.tree_dir, num_jobs, run_opts,
+                presoftmax_prior_scale_power=args.presoftmax_prior_scale_power,
+                scale_factor=args.prior_scale_factor)
     if (args.stage <= -1):
         logger.info("Preparing the initial acoustic model.")
         chain_lib.prepare_initial_acoustic_model(args.dir, run_opts)

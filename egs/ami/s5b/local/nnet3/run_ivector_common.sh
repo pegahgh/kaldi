@@ -33,7 +33,7 @@ gmmdir=exp/${mic}/${gmm}
 for f in data/${mic}/${train_set}/feats.scp ${gmmdir}/final.mdl; do
   if [ ! -f $f ]; then
     echo "$0: expected file $f to exist"
-    exit 1
+    #exit 1
   fi
 done
 

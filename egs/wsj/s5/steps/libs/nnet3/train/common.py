@@ -40,6 +40,39 @@ class RunOpts(object):
         self.prior_queue_opt = None
         self.parallel_train_opts = None
 
+def add_back_compatibility_info(config_dir, ref_raw_model=None):
+    """This will be removed when python script refactoring is done."""
+    if ref_raw_model is None:
+        common_lib.run_kaldi_command("nnet3-init {0}/ref.config "
+                                     "{0}/ref.raw".format(config_dir))
+        ref_raw_model = "{0}/ref.raw".format(config_dir)
+    out, err = common_lib.run_kaldi_command("nnet3-info {ref_raw_model} | "
+                                            "head -4".format(
+                                            ref_raw_model=ref_raw_model))
+    # out looks like this
+    # left-context: 7
+    # right-context: 0
+    # num-parameters: 90543902
+    # modulus: 1
+    info = {}
+    for line in out.split("\n"):
+        parts = line.split(":")
+        if len(parts) != 2:
+            continue
+        info[parts[0].strip()] = int(parts[1].strip())
+
+    # Writing the back-compatible vars file
+    #   model_left_context=0
+    #   model_right_context=7
+    #   num_hidden_layers=3
+    vf = open('{0}/vars'.format(config_dir), 'w')
+    vf.write('model_left_context={0}\n'.format(info['left-context']))
+    vf.write('model_right_context={0}\n'.format(info['right-context']))
+    vf.write('num_hidden_layers=1\n')
+    vf.close()
+
+    common_lib.force_symlink("final.config".format(config_dir),
+                             "{0}/layer1.config".format(config_dir))
 
 def get_successful_models(num_models, log_file_pattern,
                           difference_threshold=1.0):
