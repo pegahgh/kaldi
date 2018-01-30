@@ -238,16 +238,40 @@ def main():
     info_f = open(args.egs_dir + "/temp/" + prefix + "archive_chunk_lengths", "w")
     if info_f is None:
         sys.exit(str("Error opening file {0}/temp/" + prefix + "archive_chunk_lengths").format(args.egs_dir));
+    frames_per_utt_sum = 0.0;
+
+    # we need to check if the mean + stddev of utt lengthes are larger than
+    # max chunk length, otherwise some archives are empty.
+    # also min_chunk_length should not be less than mean - stddev.
+    utt_len = float(max(len(utt2len), 1))
+    for utt in utt2len:
+        frames_per_utt_sum = frames_per_utt_sum + utt2len[utt]
+    avg_frames_per_utt = frames_per_utt_sum / utt_len
+    frames_per_utt_sum_sqrt = 0.0
+    for utt in utt2len:
+        frames_per_utt_sum_sqrt = frames_per_utt_sum_sqrt + (utt2len[utt] - avg_frames_per_utt)**2
+    std_frames_per_utt = (frames_per_utt_sum_sqrt / (utt_len - 1.0))**0.5
+    max_frames_per_chunk = int(min(args.max_frames_per_chunk, avg_frames_per_utt + 0.5 * std_frames_per_utt))
+    min_frames_per_chunk = int(min(args.min_frames_per_chunk, avg_frames_per_utt - 0.5 * std_frames_per_utt))
+
+    assert(max_frames_per_chunk > min_frames_per_chunk)
+    if (max_frames_per_chunk < args.max_frames_per_chunk):
+        print("max-frame-per-chunk {0} is larger than avg + 0.5 stddev for frames per utterances"
+              " and smaller max-frame-per-chunk {1} is used for egs generation."
+              "".format(args.max_frames_per_chunk,
+                        max_frames_per_chunk))
     for archive_index in range(args.num_archives):
         print("Processing archive {0}".format(archive_index + 1))
+
         if args.randomize_chunk_length == "true":
             # don't constrain the lengths to be the same
-            length = random_chunk_length(args.min_frames_per_chunk, args.max_frames_per_chunk)
+            length = random_chunk_length(min_frames_per_chunk, max_frames_per_chunk)
         else:
-            length = deterministic_chunk_length(archive_index, args.num_archives, args.min_frames_per_chunk, args.max_frames_per_chunk);
+            length = deterministic_chunk_length(archive_index, args.num_archives, min_frames_per_chunk, max_frames_per_chunk);
         print("{0} {1}".format(archive_index + 1, length), file=info_f)
         archive_chunk_lengths.append(length)
         this_num_egs = int((args.frames_per_iter / length) + 1)
+        print("this-num-egs for archive {0} is {1}".format(archive_index, this_num_egs))
         this_egs = [ ] # A 2-tuple of the form (utt-id, start-frame)
         # num_repeats used in get_egs.sh is equal to number of repeats for each class (spk, age)
         # during training and num_archives * frame_per_iter = num_train_frames * num_repeats

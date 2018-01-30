@@ -52,7 +52,7 @@ max_chunk_size=`cat $srcdir/max_chunk_size 2>/dev/null`
 
 nnet=$srcdir/final.raw
 if [ -f $srcdir/$extract_config ] ; then
-  echo "$0: using $srcdir/extract.config to extract xvectors"
+  echo "$0: using $srcdir/$extract.config to extract xvectors"
   nnet="nnet3-copy --nnet-config=$srcdir/$extract_config $srcdir/final.raw - |"
 fi
 

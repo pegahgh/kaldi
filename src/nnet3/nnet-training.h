@@ -44,10 +44,10 @@ struct NnetTrainerOptions {
   std::string write_cache;
   bool binary_write_cache;
   BaseFloat max_param_change;
-  BaseFloat regression_regularize;
   NnetOptimizeOptions optimize_config;
   NnetComputeOptions compute_config;
   CachingOptimizingCompilerOptions compiler_config;
+  std::string regularize_factors;
   NnetTrainerOptions():
       zero_component_stats(true),
       store_component_stats(true),
@@ -60,7 +60,8 @@ struct NnetTrainerOptions {
       batchnorm_stats_scale(0.8),
       binary_write_cache(true),
       max_param_change(2.0),
-      regression_regularize(1.0) { }
+      regularize_factors("output:1.0") { }
+
   void Register(OptionsItf *opts) {
     opts->Register("store-component-stats", &store_component_stats,
                    "If true, store activations and derivatives for nonlinear "
@@ -106,8 +107,12 @@ struct NnetTrainerOptions {
                    "the cached computation.");
     opts->Register("binary-write-cache", &binary_write_cache, "Write "
                    "computation cache in binary mode");
-    opts->Register("regression-regularize", &regression_regularize, "regulazitation factor "
-                   "for regression objective function.");
+    opts->Register("regularize-factors", &regularize_factors,
+                   "Comma-separated pairs of output-name and its regulazitation factor ."
+                   "as output-name:regularization-factor. "
+                   "e.g. output:1.0,output-regression:0.2 means "
+                   "reugularization factor 1.0 and 0.2 for classification and "
+                   "regression objective functions.");
     // register the optimization options with the prefix "optimization".
     ParseOptions optimization_opts("optimization", opts);
     optimize_config.Register(&optimization_opts);

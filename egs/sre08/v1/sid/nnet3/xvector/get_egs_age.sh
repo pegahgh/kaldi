@@ -237,14 +237,14 @@ fi
 
 if [ $stage -le 4 ]; then
   echo "$0: Shuffling order of archives on disk"
-  #$cmd --max-jobs-run $nj JOB=1:$num_train_archives $dir/log/shuffle.JOB.log \
-  #  nnet3-shuffle-egs --srand=JOB ark:$dir/egs_temp.JOB.ark \
-  #  ark,scp:$dir/egs.JOB.ark,$dir/egs.JOB.scp || exit 1;
+  $cmd --max-jobs-run $nj JOB=1:$num_train_archives $dir/log/shuffle.JOB.log \
+    nnet3-shuffle-egs --buffer-size=5000 --srand=JOB ark:$dir/egs_temp.JOB.ark \
+    ark,scp:$dir/egs.JOB.ark,$dir/egs.JOB.scp || exit 1;
   $cmd --max-jobs-run $nj JOB=1:$num_diagnostic_archives $dir/log/train_subset_shuffle.JOB.log \
-    nnet3-shuffle-egs --srand=JOB ark:$dir/train_subset_egs_temp.JOB.ark \
+    nnet3-shuffle-egs --buffer-size=5000 --srand=JOB ark:$dir/train_subset_egs_temp.JOB.ark \
     ark,scp:$dir/train_diagnostic_egs.JOB.ark,$dir/train_diagnostic_egs.JOB.scp || exit 1;
   $cmd --max-jobs-run $nj JOB=1:$num_diagnostic_archives $dir/log/valid_shuffle.JOB.log \
-    nnet3-shuffle-egs --srand=JOB ark:$dir/valid_egs_temp.JOB.ark \
+    nnet3-shuffle-egs --buffer-size=5000 --srand=JOB ark:$dir/valid_egs_temp.JOB.ark \
     ark,scp:$dir/valid_egs.JOB.ark,$dir/valid_egs.JOB.scp || exit 1;
 fi
 

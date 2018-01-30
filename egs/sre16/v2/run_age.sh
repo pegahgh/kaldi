@@ -17,28 +17,29 @@ set -e
 mfccdir=`pwd`/mfcc
 vaddir=`pwd`/mfcc
 
-# SRE16 trials
-sre16_trials=data/sre16_eval_test/trials
-sre16_trials_tgl=data/sre16_eval_test/trials_tgl
-sre16_trials_yue=data/sre16_eval_test/trials_yue
 nnet_dir=exp/xvector_age_nnet_1e_aug2
+egs_dir=
 data=data/sre_08_10_new
 fold_index=1
 stage=1
 train_stage=-10
+dnn_stage=-1
 # random label shift config
 num_delays=0 # number of copies of data with random label shift, augmented to
              # original data.
 label_delay=0.05 # age label are shifted by label_delay % of original age
                 # to left or right by 50%
-regression_regularize=0.01
+#regularize_factors=0.01
+regularize_factors="output:1.0,output-regression:0.01"
 use_augment=true # if true, it augment data with different type of noises.
 use_new_data=true # if true, train, test and cv data are different.
 
 prior_scale=0.7
-map_threshold=0.0 #  0: uniqu mapping and one class per age.
+map_threshold=0.0001 #  0: uniqu mapping and one class per age.
                   #     larger threshold is equivalent to more ages per class.
 . parse_options.sh || exit 1;
+
+mkdir -p $nnet_dir/${fold_index}
 
 if [ $stage -le 0 ] && false; then
   # Path to some, but not all of the training corpora
@@ -94,14 +95,16 @@ fi
 if [ $stage -le 1 ]; then
   # Make filterbanks and compute the energy-based VAD for each dataset
   #for name in sre swbd sre16_eval_enroll sre16_eval_test sre16_major; do
-  for name in sre_08_10; do
-    steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
-      data/${name} exp/make_mfcc $mfccdir
-    utils/fix_data_dir.sh data/${name}
-    sid/compute_vad_decision.sh --nj 40 --cmd "$train_cmd" \
-      data/${name} exp/make_vad $vaddir
-    utils/fix_data_dir.sh data/${name}
-  done
+  if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $mfccdir/storage ]; then
+    utils/create_split_dir.pl \
+      /export/b{14,15,16,17}/$USER/kaldi-data/egs/sre08_10/v2/feats-$(date +'%m_%d_%H_%M')/mfccs/storage $mfccdir/storage
+  fi
+  steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 40 --cmd "$train_cmd" \
+    $data exp/make_mfcc $mfccdir
+  utils/fix_data_dir.sh $data
+  sid/compute_vad_decision.sh --nj 40 --cmd "$train_cmd" \
+    $data exp/make_vad $vaddir
+  utils/fix_data_dir.sh $data
   #utils/combine_data.sh data/swbd_sre data/swbd data/sre
   #utils/fix_data_dir.sh data/swbd_sre
 fi
@@ -165,6 +168,10 @@ if [ $stage -le 2 ] && $use_augment; then
   # Make filterbanks for the augmented data.  Note that we do not compute a new
   # vad.scp file here.  Instead, we use the vad.scp from the clean version of
   # the list.
+  if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $mfccdir/storage ]; then
+    utils/create_split_dir.pl \
+      /export/b{14,15,16,17}/$USER/kaldi-data/egs/sre08_10_combined/v2/feats-$(date +'%m_%d_%H_%M')/mfccs/storage $mfccdir/storage
+  fi
   steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 120 --cmd "$train_cmd" \
     ${data}_aug exp/make_mfcc $mfccdir
 
@@ -275,25 +282,29 @@ fi
 num_epochs=10
 num_repeats=10
 if $use_augment;then
-  num_epochs=5
-  num_repeats=6
+  num_epochs=7
+  num_repeats=8
+fi
+
+if [ -z $egs_dir ]; then
+  egs_dir=$nnet_dir/${fold_index}/egs
 fi
 
 if [ $stage -le 5 ]; then
   # create a mapping from age to class label
   local/prepare_age_to_class_map.py --train-label ${train_data}/${fold_index}/train/utt2age \
-    --threshold-coeff $map_threshold  --output-dir $nnet_dir/${fold_index}/egs
+    --threshold-coeff $map_threshold  --output-dir $egs_dir
 fi
 
-cp $nnet_dir/1/egs/age2class $nnet_dir/${fold_index}/.
+cp $egs_dir/age2class $nnet_dir/${fold_index}/.
 
 if [ $stage -le 6 ]; then
-  local/nnet3/xvector/run_xvector_age.sh --stage $train_stage --train-stage -1 \
+  local/nnet3/xvector/run_xvector_age.sh --stage $train_stage --train-stage $dnn_stage \
     --num-repeats $num_repeats --frames-per-iter 1600000000 --num-epochs $num_epochs \
     --frames-per-iter-diagnostic 100000000 \
     --data ${train_data}/${fold_index}/train --nnet-dir $nnet_dir/${fold_index} \
-    --egs-dir $nnet_dir/${fold_index}/egs \
-    --regression-regularize $regression_regularize \
+    --egs-dir $egs_dir \
+    --regularize-factors $regularize_factors \
     --valid-uttlist ${train_data}/${fold_index}/cv_uttlist
 fi
 
@@ -308,7 +319,7 @@ if [ $stage -le 7 ]; then
     $nnet_dir/${fold_index} ${data}/${fold_index}/test \
     $nnet_dir/${fold_index}/xvectors_test_regression
 fi
-cp $nnet_dir/${fold_index}/age_offset ${data}/${fold_index}/test/
+cp $nnet_dir/${fold_index}/age2class ${data}/${fold_index}/test/
 
 if [ $stage -le 8 ]; then
   echo "Evaluate trained model on fold ${fold_index}."

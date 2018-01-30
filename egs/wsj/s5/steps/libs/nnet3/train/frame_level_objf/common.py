@@ -33,7 +33,7 @@ def train_new_models(dir, iter, srand, num_jobs,
                      min_deriv_time=None, max_deriv_time_relative=None,
                      use_multitask_egs=False,
                      backstitch_training_scale=0.0, backstitch_training_interval=1,
-                     regression_regularize=1.0):
+                     regularize_factors=1.0):
     """ Called from train_one_iteration(), this model does one iteration of
     training with 'num_jobs' jobs, and writes files like
     exp/tdnn_a/24.{1,2,3,..<num_jobs>}.raw
@@ -138,12 +138,13 @@ def train_new_models(dir, iter, srand, num_jobs,
             """{command} {train_queue_opt} {dir}/log/train.{iter}.{job}.log \
                     nnet3-train {parallel_train_opts} {cache_io_opts} \
                      {verbose_opt} --print-interval=5 \
+                    --compiler.cache-capacity=256 \
                     --momentum={momentum} \
                     --max-param-change={max_param_change} \
                     --backstitch-training-scale={backstitch_training_scale} \
                     --l2-regularize-factor={l2_regularize_factor} \
                     --backstitch-training-interval={backstitch_training_interval} \
-                    --srand={srand} --regression-regularize={regression_regularize}\
+                    --srand={srand} --regularize-factors={regularize_factors}\
                     {deriv_time_opts} "{raw_model}" "{egs_rspecifier}" \
                     {dir}/{next_iter}.{job}.raw""".format(
                 command=run_opts.command,
@@ -161,7 +162,7 @@ def train_new_models(dir, iter, srand, num_jobs,
                 deriv_time_opts=" ".join(deriv_time_opts),
                 raw_model=raw_model_string,
                 egs_rspecifier=egs_rspecifier,
-                regression_regularize=regression_regularize),
+                regularize_factors=regularize_factors),
             require_zero_status=True)
 
         threads.append(thread)
@@ -183,7 +184,7 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                         backstitch_training_scale=0.0,
                         backstitch_training_interval=1,
                         compute_per_dim_accuracy=False,
-                        regression_regularize=1.0):
+                        regularize_factors=1.0):
     """ Called from steps/nnet3/train_*.py scripts for one iteration of neural
     network training
 
@@ -283,7 +284,7 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                      use_multitask_egs=use_multitask_egs,
                      backstitch_training_scale=backstitch_training_scale,
                      backstitch_training_interval=backstitch_training_interval,
-                     regression_regularize=regression_regularize)
+                     regularize_factors=regularize_factors)
 
     [models_to_average, best_model, do_average_bkup] = common_train_lib.get_successful_models(
          num_jobs, '{0}/log/train.{1}.%.log'.format(dir, iter))
@@ -459,7 +460,8 @@ def combine_models(dir, num_iters, models_to_combine, egs_dir,
                    chunk_width=None, get_raw_nnet_from_am=True,
                    sum_to_one_penalty=0.0,
                    use_multitask_egs=False,
-                   compute_per_dim_accuracy=False):
+                   compute_per_dim_accuracy=False,
+                   regularize_factors="output:1.0"):
     """ Function to do model combination
 
     In the nnet3 setup, the logic
@@ -507,6 +509,7 @@ def combine_models(dir, num_iters, models_to_combine, egs_dir,
     common_lib.execute_command(
         """{command} {combine_queue_opt} {dir}/log/combine.log \
                 nnet3-combine --num-iters=80 \
+                --regularize-factors={regularize_factors} \
                 --enforce-sum-to-one={hard_enforce} \
                 --sum-to-one-penalty={penalty} \
                 --enforce-positive-weights=true \
@@ -523,7 +526,8 @@ def combine_models(dir, num_iters, models_to_combine, egs_dir,
                    penalty=sum_to_one_penalty,
                    mbsize=minibatch_size_str,
                    out_model=out_model,
-                   multitask_egs_opts=multitask_egs_opts))
+                   multitask_egs_opts=multitask_egs_opts,
+                   regularize_factors=regularize_factors))
 
     # Compute the probability of the final, combined model with
     # the same subset we used for the previous compute_probs, as the

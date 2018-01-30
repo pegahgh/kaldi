@@ -354,13 +354,13 @@ class XconfigTimeDomainLayer(XconfigLayerBase):
                        'frame-dim': 80,
                        'max-change' : 0.75,
                        'num-filters' : 100,
-                       'log-floor' : 0.001,
+                       'log-floor' : 0.0001,
                        'nin-mid-dim' : 75,
                        'nin-forward-dim' : 500,
                        'sub-frames-per-frame': 8,
                        'frames-left-context':1,
                        'frames-right-context':0,
-                       'max-shift', 0.2}
+                       'max-shift': 0.2}
 
 
     def check_configs(self):
@@ -436,9 +436,8 @@ class XconfigTimeDomainLayer(XconfigLayerBase):
         for nonlinearity in nonlinearities:
             if nonlinearity == 'preprocess':
                 configs.append('component name={0}.preprocess type=ShiftInputComponent '
-                               'input-dim={1} output-dim={2} dither=0.0 max-shift=0.0 '
-                               'preprocess=true '
-                               'max-shift={3}'.format(self.name, cur_dim,
+                               'input-dim={1} output-dim={2} dither=0.0 max-shift={3} '
+                               'preprocess=true '.format(self.name, cur_dim,
                                 cur_dim - frame_dim,
                                 self.config['max-shift']))
 

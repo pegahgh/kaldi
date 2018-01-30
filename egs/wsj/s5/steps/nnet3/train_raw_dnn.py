@@ -81,10 +81,18 @@ def get_args():
                         choices=["true", "false"], default=False,
                         help="""If true, then the average output of the
                         network is computed and dumped as post.final.vec""")
-    parser.add_argument("--trainer.regression-regularize", type=float,
-                        dest='regression_regularize', default=1.0,
-                        help="Weight of regression regularization function "
-                        "which is the regression cost the outputs.")
+    parser.add_argument("--trainer.regularize-factors", type=str,
+                        dest='regularize_factors', default=1.0,
+                        help="comm-separated string, which maps output name to "
+                        "weight of regularization function "
+                        "which is the regression cost the outputs."
+                        "e.g. output:1.0,output-regression:0.1")
+    parser.add_argument("--trainer.fft-feat-dim", type=int,
+                        dest='fft_feat_dim', default=0,
+                        help="""If nonzero, the cosine and sine transformation
+                        with dim fft_feat_dim and closest 2-power of that is
+                        generated as configs/{cos,sin}_transform.mat.
+                        """)
     # General options
     parser.add_argument("--nj", type=int, default=4,
                         help="Number of parallel jobs")
@@ -281,6 +289,21 @@ def train(args, run_opts):
             args.dir, egs_dir, num_archives, run_opts,
             max_lda_jobs=args.max_lda_jobs,
             rand_prune=args.rand_prune)
+    if (args.fft_feat_dim != 0):
+        feat_dim = args.fft_feat_dim
+        add_bias = True
+        num_fft_bins = (2**(feat_dim-1).bit_length())
+        common_lib.write_sin_cos_transform_matrix(feat_dim, num_fft_bins,
+            "{0}/configs/cos_transform.mat".format(args.dir),
+            compute_cosine=True, add_bias=add_bias, half_range=True)
+        common_lib.write_sin_cos_transform_matrix(feat_dim, num_fft_bins,
+            "{0}/configs/sin_transform.mat".format(args.dir),
+            compute_cosine=False, add_bias=add_bias, half_range=True)
+        common_lib.write_negate_vector(num_fft_bins,
+            "{0}/configs/negate.vec".format(args.dir))
+        preemph = 0.97
+        common_lib.compute_and_write_preprocess_transform(preemph, feat_dim,
+            "{0}/configs/preprocess.mat".format(args.dir))
 
     if args.stage <= -1:
         logger.info("Preparing the initial network.")
@@ -380,7 +403,7 @@ def train(args, run_opts):
                 use_multitask_egs=use_multitask_egs,
                 backstitch_training_scale=args.backstitch_training_scale,
                 backstitch_training_interval=args.backstitch_training_interval,
-                regression_regularize=args.regression_regularize)
+                regularize_factors=args.regularize_factors)
 
             if args.cleanup:
                 # do a clean up everything but the last 2 models, under certain
@@ -412,7 +435,8 @@ def train(args, run_opts):
                 minibatch_size_str=args.minibatch_size, run_opts=run_opts,
                 get_raw_nnet_from_am=False,
                 sum_to_one_penalty=args.combine_sum_to_one_penalty,
-                use_multitask_egs=use_multitask_egs)
+                use_multitask_egs=use_multitask_egs,
+                regularize_factors=args.regularize_factors)
         else:
             common_lib.force_symlink("{0}.raw".format(num_iters),
                                      "{0}/final.raw".format(args.dir))
