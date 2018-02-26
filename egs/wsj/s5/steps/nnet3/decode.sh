@@ -33,6 +33,7 @@ extra_right_context_final=-1
 feat_type=
 online_ivector_dir=
 minimize=false
+scoring_script=local/score.sh
 # End configuration section.
 
 echo "$0 $@"  # Print the command line for logging
@@ -176,11 +177,11 @@ fi
 # different acoustic scales to get the final output.
 if [ $stage -le 3 ]; then
   if ! $skip_scoring ; then
-    [ ! -x local/score.sh ] && \
-      echo "Not scoring because local/score.sh does not exist or not executable." && exit 1;
+    [ ! -x $scoring_script ] && \
+      echo "Not scoring because $scoring_script does not exist or not executable." && exit 1;
     echo "score best paths"
     [ "$iter" != "final" ] && iter_opt="--iter $iter"
-    local/score.sh $iter_opt $scoring_opts --cmd "$cmd" $data $graphdir $dir
+    $scoring_script $iter_opt $scoring_opts --cmd "$cmd" $data $graphdir $dir
     echo "score confidence and timing with sclite"
   fi
 fi

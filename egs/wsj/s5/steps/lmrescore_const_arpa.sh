@@ -8,6 +8,7 @@
 # Begin configuration section.
 cmd=run.pl
 skip_scoring=false
+scoring_script=local/score.sh
 stage=1
 scoring_opts=
 # End configuration section.
@@ -60,9 +61,9 @@ if [ $stage -le 1 ]; then
 fi
 
 if ! $skip_scoring && [ $stage -le 2 ]; then
-  err_msg="Not scoring because local/score.sh does not exist or not executable."
-  [ ! -x local/score.sh ] && echo $err_msg && exit 1;
-  local/score.sh --cmd "$cmd" $scoring_opts $data $newlang $outdir
+  err_msg="Not scoring because $scoring_script does not exist or not executable."
+  [ ! -x $scoring_script ] && echo $err_msg && exit 1;
+  $scoring_script --cmd "$cmd" $scoring_opts $data $newlang $outdir
 else
   echo "Not scoring because requested so..."
 fi

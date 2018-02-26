@@ -289,12 +289,17 @@ def parse_prob_logs(exp_dir, key='accuracy', output="output"):
     # Overall log-probability for 'output' is -0.307255 per frame, over 20000
     # frames.
 
+    #parse_regex = re.compile(
+    #    ".*compute_prob_.*\.([0-9]+).log:LOG "
+    #    ".nnet3.*compute-prob.*:PrintTotalStats..:"
+    #    "nnet.*diagnostics.cc:[0-9]+. Overall ([a-zA-Z\-]+) for "
+    #    "'{output}'.*is ([0-9.\-e]+) .*per frame".format(output=output))
+
     parse_regex = re.compile(
         ".*compute_prob_.*\.([0-9]+).log:LOG "
         ".nnet3.*compute-prob.*:PrintTotalStats..:"
         "nnet.*diagnostics.cc:[0-9]+. Overall ([a-zA-Z\-]+) for "
-        "'{output}'.*is ([0-9.\-e]+) .*per frame".format(output=output))
-
+        "'{output}'.*is ([0-9\.\-e]+) .*per frame.*".format(output=output))
     train_loss = {}
     valid_loss = {}
 

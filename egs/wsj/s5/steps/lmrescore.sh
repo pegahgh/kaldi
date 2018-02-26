@@ -7,6 +7,7 @@ mode=4
 cmd=run.pl
 skip_scoring=false
 self_loop_scale=0.1
+scoring_script=local/score.sh
 # End configuration section.
 
 echo "$0 $@"  # Print the command line for logging
@@ -118,9 +119,9 @@ esac
 rm $outdir/Ldet.fst 2>/dev/null || true
 
 if ! $skip_scoring ; then
-  [ ! -x local/score.sh ] && \
-    echo "Not scoring because local/score.sh does not exist or not executable." && exit 1;
-  local/score.sh --cmd "$cmd" $data $newlang $outdir
+  [ ! -x $scoring_script ] && \
+    echo "Not scoring because $scoring_script does not exist or not executable." && exit 1;
+  $scoring_script --cmd "$cmd" $data $newlang $outdir
 else
   echo "Not scoring because requested so..."
 fi

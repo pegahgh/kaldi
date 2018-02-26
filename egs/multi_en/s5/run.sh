@@ -220,9 +220,9 @@ if [ $stage -le 15 ]; then
   utils/dict_dir_add_pronprobs.sh --max-normalize true \
     data/local/dict_nosp exp/$multi/tri3/pron_counts_nowb.txt \
     exp/$multi/tri3/sil_counts_nowb.txt exp/$multi/tri3/pron_bigram_counts_nowb.txt data/local/dict
-  utils/prepare_lang.sh data/local/dict "<unk>" data/local/lang data/lang
+  utils/prepare_lang.sh data/local/dict_nosp "<unk>" data/local/lang data/lang_nosp
   utils/format_lm_sri.sh --srilm-opts "$srilm_opts" \
-    data/lang data/local/lm/3gram-mincount/lm_unpruned.gz \
+    data/lang_nosp data/local/lm/3gram-mincount/lm_unpruned.gz \
     data/local/dict/lexicon.txt data/lang_fsh_sw1_tg
 fi
 
@@ -230,10 +230,10 @@ fi
 if [ $stage -le 16 ]; then
   local/make_partitions.sh --multi $multi --stage 5 || exit 1;
   steps/align_fmllr.sh --cmd "$train_cmd" --nj 60 \
-    data/$multi/tri3_ali data/lang \
+    data/$multi/tri3_ali data/lang_nosp \
     exp/$multi/tri3 exp/$multi/tri3_ali || exit 1;
   steps/train_sat.sh --cmd "$train_cmd" 11500 800000 \
-    data/$multi/tri4 data/lang exp/$multi/tri3_ali exp/$multi/tri4 || exit 1;
+    data/$multi/tri4 data/lang_nosp exp/$multi/tri3_ali exp/$multi/tri4 || exit 1;
 fi
 
 # decode
@@ -251,10 +251,10 @@ fi
 if [ $stage -le 18 ]; then
   local/make_partitions.sh --multi $multi --stage 6 || exit 1;
   steps/align_fmllr.sh --cmd "$train_cmd" --nj 100 \
-    data/$multi/tri4_ali data/lang \
+    data/$multi/tri4_ali data/lang_nosp \
     exp/$multi/tri4 exp/$multi/tri4_ali || exit 1;
   steps/train_sat.sh --cmd "$train_cmd" 11500 2000000 \
-    data/$multi/tri5 data/lang exp/$multi/tri4_ali exp/$multi/tri5 || exit 1;
+    data/$multi/tri5 data/lang_nosp exp/$multi/tri4_ali exp/$multi/tri5 || exit 1;
 fi
 
 # decode

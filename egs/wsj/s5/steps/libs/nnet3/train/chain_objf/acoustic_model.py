@@ -189,8 +189,8 @@ def train_new_models(dir, iter, srand, num_jobs,
             den_fst_output_opts = "--den-fst-to-output={0}".format(
                 ",".join(den_fst_output))
         else:
-            assert(os.path.exists("{dir}/den.fst".format(dir)))
-            den_fst_str = "{dir}/den.fst".format(dir)
+            assert(os.path.exists("{0}/den.fst".format(dir)))
+            den_fst_str = "{0}/den.fst".format(dir)
             den_fst_output_opts  = ""
 
         process_handle = common_lib.run_job(
@@ -535,8 +535,8 @@ def compute_train_cv_probabilities(dir, iter, egs_dir, left_context,
         den_fst_output_opts = "--den-fst-to-output={0}".format(
             ",".join(den_fst_output))
     else:
-        assert(os.path.exists("{dir}/den.fst".format(dir)))
-        den_fst_str = "{dir}/den.fst".format(dir)
+        assert(os.path.exists("{0}/den.fst".format(dir)))
+        den_fst_str = "{0}/den.fst".format(dir)
         den_fst_output_opts  = ""
     common_lib.run_job(
         """{command} {dir}/log/compute_prob_valid.{iter}.log \
@@ -649,8 +649,8 @@ def combine_models(dir, num_iters, models_to_combine, num_chunk_per_minibatch_st
         den_fst_output_opts = "--den-fst-to-output={0}".format(
             ",".join(den_fst_output))
     else:
-        assert(os.path.exists("{dir}/den.fst".format(dir)))
-        den_fst_str = "{dir}/den.fst".format(dir)
+        assert(os.path.exists("{0}/den.fst".format(dir)))
+        den_fst_str = "{0}/den.fst".format(dir)
         den_fst_output_opts  = ""
 
     multitask_egs_opts = common_train_lib.get_multitask_egs_opts(

@@ -5,6 +5,9 @@ set -e
 stage=4
 use_flp=false
 suffix= # _sp, to use speed-perturbed data to generate lda+mllt model.
+numLeavesMLLT=5500
+numGaussMLLT=90000
+numGaussUBM=512
 
 [ ! -f ./conf/common_vars.sh ] && echo 'the file conf/common_vars.sh does not exist!' && exit 1;
 
@@ -16,12 +19,12 @@ suffix= # _sp, to use speed-perturbed data to generate lda+mllt model.
 
 lda_mllt_lang=$1
 multi_data_dir=$2
-global_extractor_dir_dir=$3
+global_extractor_dir=$3
 
-. local/prepare_lang_conf.sh --fullLP $use_flp $lda_mllt_lang
-langconf=langconf/$lda_mllt_lang/lang.conf
-[ ! -f $langconf ] && echo 'Language configuration does not exist! Use the configurations in conf/lang/* as a startup' && exit 1
-. $langconf || exit 1;
+#. local/prepare_lang_conf.sh --fullLP $use_flp $lda_mllt_lang
+#langconf=langconf/$lda_mllt_lang/lang.conf
+#[ ! -f $langconf ] && echo 'Language configuration does not exist! Use the configurations in conf/lang/* as a startup' && exit 1
+#. $langconf || exit 1;
 
 if [ $stage -le 5 ]; then
   # We need to build a small system just because we need the LDA+MLLT transform
@@ -38,8 +41,8 @@ fi
 
 if [ $stage -le 6 ]; then
   # To train a diagonal UBM we don't need very much data, so use the smallest subset.
-  steps/online/nnet2/train_diag_ubm.sh --cmd "$train_cmd" --nj 200 --num-frames 500000 \
-    $multi_data_dir $numGaussUBM exp/$lda_mllt_lang/nnet3/tri3b $global_extractor_dir_dir/diag_ubm
+  steps/online/nnet2/train_diag_ubm.sh --cmd "$train_cmd" --nj 200 --num-frames 250000 \
+    $multi_data_dir $numGaussUBM exp/$lda_mllt_lang/nnet3/tri3b $global_extractor_dir/diag_ubm
 fi
 
 if [ $stage -le 7 ]; then
@@ -47,6 +50,6 @@ if [ $stage -le 7 ]; then
   # fairly small dim (defaults to 100) so we don't use all of it, we use just the
   # 100k subset (just under half the data).
   steps/online/nnet2/train_ivector_extractor.sh --cmd "$train_cmd" --nj 200 \
-    $multi_data_dir  $global_extractor_dir_dir/diag_ubm $global_extractor_dir_dir/extractor || exit 1;
+    $multi_data_dir  $global_extractor_dir/diag_ubm $global_extractor_dir/extractor || exit 1;
 fi
 exit 0;

@@ -100,7 +100,7 @@ for lang_index in `seq 0 $[$num_langs-1]`; do
     --speed-perturb $speed_perturb ${lang_list[$lang_index]} || exit;
 done
 
-if $use_ivector && false; then
+if $use_ivector; then
   mkdir -p data/multi
   mkdir -p exp/multi/nnet3
   global_extractor=exp/multi/nnet3
@@ -119,6 +119,10 @@ if $use_ivector && false; then
     utils/validate_data_dir.sh --no-feats data/multi/train${suffix}_hires
     touch data/multi/train${suffix}_hires/.done
   fi
+  # create subset of multi data dir by taking the 1/8th of the data to be used
+  # for the diag ubm training.
+  multi_data_dir=data/multi/train${suffix}_1k_spk_hires
+  utils/subset_data_dir.sh --speakers data/multi/train${suffix}_hires 1000 $multi_data_dir
 
   if [ ! -f $global_extractor/extractor/.done ]; then
     echo "$0: Generate global i-vector extractor on pooled data from all "
@@ -139,7 +143,7 @@ if $use_ivector && false; then
       $global_extractor/extractor || exit;
   done
 fi
-
+exit 1;
 for lang_index in `seq 0 $[$num_langs-1]`; do
   multi_data_dirs[$lang_index]=data/${lang_list[$lang_index]}/train${suffix}${feat_suffix}
   multi_egs_dirs[$lang_index]=exp/${lang_list[$lang_index]}/nnet3/egs${ivector_suffix}

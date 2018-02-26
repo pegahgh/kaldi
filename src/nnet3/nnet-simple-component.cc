@@ -3576,7 +3576,8 @@ std::string ConvolutionComponent::Info() const {
 // initialize the component using configuration file
 void ConvolutionComponent::InitFromConfig(ConfigLine *cfl) {
   bool ok = true;
-  std::string matrix_filename;
+  std::string matrix_filename,
+    cos_matrix_filename, sin_matrix_filename;
   int32 input_x_dim = -1, input_y_dim = -1, input_z_dim = -1,
         filt_x_dim = -1, filt_y_dim = -1,
         filt_x_step = -1, filt_y_step = -1,
@@ -3590,6 +3591,10 @@ void ConvolutionComponent::InitFromConfig(ConfigLine *cfl) {
   ok = ok && cfl->GetValue("filt-y-dim", &filt_y_dim);
   ok = ok && cfl->GetValue("filt-x-step", &filt_x_step);
   ok = ok && cfl->GetValue("filt-y-step", &filt_y_step);
+  if (cfl->GetValue("cos-transform", &cos_matrix_filename))
+    ReadKaldiObject(cos_matrix_filename, &cos_transform_);
+  if (cfl->GetValue("sin-transform", &sin_matrix_filename))
+    ReadKaldiObject(sin_matrix_filename, &sin_transform_);
 
   if (!ok)
     KALDI_ERR << "Bad initializer " << cfl->WholeLine();
@@ -3989,6 +3994,11 @@ void ConvolutionComponent::Update(const std::string &debug_info,
   //
   filter_params_.AddMat(learning_rate_, filters_grad);
   bias_params_.AddVec(learning_rate_, bias_grad);
+
+  // update using l1-regularization on fft of filters in frequency domain.
+  BaseFloat l1_regularizer = 0.1
+  CuMatrix<BaseFloat> l1_reg_update(num_filters, filter_dim);
+  filter_params_.AddMat(l1_regularizer, l1_reg_update);
 }
 
 void ConvolutionComponent::Read(std::istream &is, bool binary) {

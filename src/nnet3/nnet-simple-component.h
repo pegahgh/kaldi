@@ -1648,6 +1648,17 @@ class ConvolutionComponent: public UpdatableComponent {
   CuVector<BaseFloat> bias_params_;
   // the filter-specific bias vector (i.e., there is a seperate bias added
   // to the output of each filter).
+
+  CuMatrix<BaseFloat> cos_transform_;
+  // The discrete cosine transform matrix used to transform time-domain
+  // filter params to frequency domain and apply l1-regularization
+  // on parameters in frequency domain. It is useful in raw waveform setup
+  // which helps to learn filters which are sparse in frequncy domain.
+
+  CuMatrix<BaseFloat> sin_transform_;
+  // The discrete sine transfomr matrix used to transform time-domain filter
+  // parameters to frequency domain.
+
   bool is_gradient_;
 
   void InputToInputPatches(const CuMatrixBase<BaseFloat>& in,

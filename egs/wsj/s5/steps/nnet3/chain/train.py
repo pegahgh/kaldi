@@ -383,18 +383,18 @@ def train(args, run_opts, background_process_handler):
     # use_multitask_egs is True, if egs rspecifier generated in egs dir
     # which can be used in multilingul or multi-task training.
     use_multitask_egs = False
-    if (os.path.exists('{0}/valid_diagnostic.scp'.format(args.egs_dir))):
-        if (os.path.exists('{0}/valid_diagnostic.egs'.format(args.egs_dir))):
-            raise Exception('both {0}/valid_diagnostic.egs and '
+    if (os.path.exists('{0}/valid_diagnostic.scp'.format(egs_dir))):
+        if (os.path.exists('{0}/valid_diagnostic.cegs'.format(egs_dir))):
+            raise Exception('both {0}/valid_diagnostic.cegs and '
                             '{0}/valid_diagnostic.scp exist.'
                             'This script expects one of them to exist.'
-                            ''.format(args.egs_dir))
+                            ''.format(egs_dir))
         use_multitask_egs = True
     else:
-        if (not os.path.exists('{0}/valid_diagnostic.egs'.format(args.egs_dir))):
-            raise Exception('neither {0}/valid_diagnostic.egs nor '
+        if (not os.path.exists('{0}/valid_diagnostic.cegs'.format(egs_dir))):
+            raise Exception('neither {0}/valid_diagnostic.cegs nor '
                             '{0}/valid_diagnostic.scp exist.'
-                            'This script expects one of them.'.format(args.egs_dir))
+                            'This script expects one of them.'.format(egs_dir))
         use_multitask_egs = False
 
     if (add_lda and args.stage <= -2):
