@@ -33,7 +33,7 @@ def train_new_models(dir, iter, srand, num_jobs,
                      min_deriv_time=None, max_deriv_time_relative=None,
                      use_multitask_egs=False,
                      backstitch_training_scale=0.0, backstitch_training_interval=1,
-                     regularize_factors=1.0):
+                     regularize_factors=None):
     """ Called from train_one_iteration(), this model does one iteration of
     training with 'num_jobs' jobs, and writes files like
     exp/tdnn_a/24.{1,2,3,..<num_jobs>}.raw
@@ -162,7 +162,7 @@ def train_new_models(dir, iter, srand, num_jobs,
                 deriv_time_opts=" ".join(deriv_time_opts),
                 raw_model=raw_model_string,
                 egs_rspecifier=egs_rspecifier,
-                regularize_factors=regularize_factors),
+                regularize_factors=(regularize_factors if regularize_factors is not None else '')),
             require_zero_status=True)
 
         threads.append(thread)
@@ -184,7 +184,8 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                         backstitch_training_scale=0.0,
                         backstitch_training_interval=1,
                         compute_per_dim_accuracy=False,
-                        regularize_factors=1.0):
+                        regularize_factors=None,
+                        do_average=True):
     """ Called from steps/nnet3/train_*.py scripts for one iteration of neural
     network training
 
@@ -236,8 +237,8 @@ def train_one_iteration(dir, iter, srand, egs_dir,
         compute_progress(dir=dir, iter=iter, egs_dir=egs_dir,
                          run_opts=run_opts,
                          get_raw_nnet_from_am=get_raw_nnet_from_am)
-
-    do_average = (iter > 0)
+    if do_average:
+        do_average = (iter > 0)
 
 
     raw_model_string = ("nnet3-copy --learning-rate={lr} --scale={s} "
@@ -508,7 +509,7 @@ def combine_models(dir, num_iters, models_to_combine, egs_dir,
                              use_multitask_egs=use_multitask_egs)
     common_lib.execute_command(
         """{command} {combine_queue_opt} {dir}/log/combine.log \
-                nnet3-combine --num-iters=80 \
+                nnet3-combine --num-iters=30 \
                 --regularize-factors={regularize_factors} \
                 --enforce-sum-to-one={hard_enforce} \
                 --sum-to-one-penalty={penalty} \

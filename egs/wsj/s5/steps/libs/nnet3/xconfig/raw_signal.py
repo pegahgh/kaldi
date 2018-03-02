@@ -42,7 +42,6 @@ class XconfigFftFilterLayer(XconfigLayerBase):
                         'max-param-value' : 1.0,
                         'min-param-value' : 0.0,
                         'l2-regularize' : 0.005,
-                        'learning-rate-factor' : 1,
                         'dim' : -1,
                         'write-init-config' : True,
                         'num-filters' : 100,
@@ -305,10 +304,10 @@ class XconfigFftFilterLayer(XconfigLayerBase):
                 configs.append('component name={0}.filterbank type=AffineComponent '
                                'input-dim={1} output-dim={2} max-change={3} '
                                'min-param-value={4} max-param-value={5} '
-                               'bias-stddev=0.0 l2-regularize={6}'
+                               'bias-stddev=0.0 l2-regularize={6} {7}'
                                ''.format(self.name, cur_dim, num_filters, max_change,
                                          min_param_value, max_param_value,
-                                         l2_regularize))
+                                         l2_regularize, learning_rate_option))
                 configs.append('component-node name={0}.filterbank '
                                'component={0}.filterbank input={1}'
                                ''.format(self.name, cur_node))
@@ -360,7 +359,10 @@ class XconfigTimeDomainLayer(XconfigLayerBase):
                        'sub-frames-per-frame': 8,
                        'frames-left-context':1,
                        'frames-right-context':0,
-                       'max-shift': 0.2}
+                       'max-shift': 0.2,
+                       'tconv-stddev-scale': 0.9,
+                       'nin-stddev-scale': 2.0,
+                       'l2-regularize': 0.0}
 
 
     def check_configs(self):
@@ -427,6 +429,9 @@ class XconfigTimeDomainLayer(XconfigLayerBase):
         nin_forward_dim = self.config['nin-forward-dim']
         log_floor = self.config['log-floor']
         num_filters  = self.config['num-filters']
+        tconv_stddev_scale = self.config['tconv-stddev-scale']
+        nin_stddev_scale = self.config['nin-stddev-scale']
+        l2_regularize = self.config['l2-regularize']
         samples_per_sub_frame = frame_dim / self.config['sub-frames-per-frame']
         filter_step = samples_per_sub_frame
         filter_dim = input_dim - (frame_dim if 'preprocess' in nonlinearities else 0) - frame_dim + filter_step
@@ -454,11 +459,12 @@ class XconfigTimeDomainLayer(XconfigLayerBase):
                                'filt-x-dim={2} filt-y-dim=1 filt-x-step={3} '
                                'filt-y-step=1 num-filters={4} '
                                'input-vectorization-order=zyx param-stddev={5} '
-                               'bias-stddev=0.01 max-change={6}'
+                               'bias-stddev=0.01 max-change={6} '
+                               'l2-regularize={7}'
                                ''.format(self.name, cur_dim, filter_dim,
                                         filter_step, num_filters,
-                                        0.9 / (filter_dim**0.5),
-                                        max_change))
+                                        tconv_stddev_scale / (filter_dim**0.5),
+                                        max_change, l2_regularize))
 
                 configs.append('component-node name={0}.tconv '
                                'component={0}.tconv input={1}'
@@ -506,12 +512,13 @@ class XconfigTimeDomainLayer(XconfigLayerBase):
                 configs.append("component name={0}.nin type=CompositeComponent "
                                "num-components=4 "
                                "component1='type=RectifiedLinearComponent dim={1} self-repair-scale=1e-05' "
-                               "component2='type=NaturalGradientRepeatedAffineComponent input-dim={1} output-dim={2} num-repeats={3} param-stddev={4} bias-stddev=0' "
+                               "component2='type=NaturalGradientRepeatedAffineComponent input-dim={1} output-dim={2} num-repeats={3} param-stddev={4} bias-stddev=0 max-change=0.75' "
                                "component3='type=RectifiedLinearComponent dim={2} self-repair-scale=1e-05' "
-                               "component4='type=NaturalGradientRepeatedAffineComponent input-dim={2}  output-dim={1} num-repeats={3} param-stddev={5} bias-mean=0.1 bias-stddev=0 ' "
+                               "component4='type=NaturalGradientRepeatedAffineComponent input-dim={2}  output-dim={1} num-repeats={3} param-stddev={5} bias-mean=0.1 bias-stddev=0 max-change=0.75' "
                                "".format(self.name, cur_dim, nin_mid_dim * num_filters,
-                                         num_filters, 2.0 / (cur_dim**0.5),
-                                         2.0 / (nin_mid_dim * num_filters)**0.5))
+                                         num_filters,
+                                         nin_stddev_scale / (cur_dim**0.5),
+                                         nin_stddev_scale / (nin_mid_dim * num_filters)**0.5))
 
                 configs.append('component-node name={0}.nin component={0}.nin '
                                'input={1}'

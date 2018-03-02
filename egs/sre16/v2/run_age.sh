@@ -11,6 +11,11 @@
 # In the future, we will add score-normalization and a more effective form of
 # PLDA domain adaptation.
 
+# If we use prior normalization to reballance posteriors for nnet model:
+# oracle result by removing training prior and use test priors: (prior-scale=-0.8) : 5.16
+# Baseline (no prior normalization): 5.28
+# reballance the training prior (prior-scale=-0.6): 5.23
+
 . cmd.sh
 . path.sh
 set -e
@@ -35,8 +40,9 @@ use_augment=true # if true, it augment data with different type of noises.
 use_new_data=true # if true, train, test and cv data are different.
 
 prior_scale=0.7
-map_threshold=0.0001 #  0: uniqu mapping and one class per age.
-                  #     larger threshold is equivalent to more ages per class.
+map_threshold=0.000001 #  0: uniqu mapping and one class per age.
+                       #  larger threshold is equivalent to more ages per class.
+egs_chunk=1000
 . parse_options.sh || exit 1;
 
 mkdir -p $nnet_dir/${fold_index}
@@ -252,7 +258,7 @@ if [ $num_delays -gt 0 ]; then delay_suffix="_ld${label_delay}_${num_delays}"; f
 
 test_data=$data/${fold_index}/test
 train_data=${data}${aug_suffix}_no_sil${delay_suffix}
-if [ $stage -le 5 ]; then
+if [ $stage -le 4 ]; then
 # exclude test data from training dataset and use new dataset for training
 # all different version of utt from test set are removed from training data.
   if $use_new_data; then
@@ -281,9 +287,10 @@ fi
 
 num_epochs=10
 num_repeats=10
+
 if $use_augment;then
-  num_epochs=7
-  num_repeats=8
+  num_epochs=4
+  num_repeats=3
 fi
 
 if [ -z $egs_dir ]; then
@@ -300,34 +307,51 @@ cp $egs_dir/age2class $nnet_dir/${fold_index}/.
 
 if [ $stage -le 6 ]; then
   local/nnet3/xvector/run_xvector_age.sh --stage $train_stage --train-stage $dnn_stage \
-    --num-repeats $num_repeats --frames-per-iter 1600000000 --num-epochs $num_epochs \
-    --frames-per-iter-diagnostic 100000000 \
+    --num-repeats $num_repeats --frames-per-iter 35000000 --num-epochs $num_epochs \
+    --frames-per-iter-diagnostic 700000 \
     --data ${train_data}/${fold_index}/train --nnet-dir $nnet_dir/${fold_index} \
     --egs-dir $egs_dir \
     --regularize-factors $regularize_factors \
-    --valid-uttlist ${train_data}/${fold_index}/cv_uttlist
+    --valid-uttlist ${train_data}/${fold_index}/cv_uttlist \
+    --min-egs-chunk $egs_chunk --max-egs-chunk $egs_chunk --shrink 10
 fi
+
+utils/subset_data_dir.sh ${data}/${fold_index}/train 5000 \
+  ${data}/${fold_index}/train_5k
 
 if [ $stage -le 7 ]; then
   # The SRE16 test data for test.
+  #sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 6G" --nj 40 \
+  #  --extract-config extract.config.regression \
+  #  $nnet_dir/${fold_index} ${data}/${fold_index}/test \
+  #  $nnet_dir/${fold_index}/xvectors_test_regression
+
+  # compute xvector for subset of training data
+  # This subset is used to compute prior and reballance the model.
+  (
   sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 6G" --nj 40 \
     $nnet_dir/${fold_index} ${data}/${fold_index}/test \
     $nnet_dir/${fold_index}/xvectors_test
 
-  sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 6G" --nj 40 \
-    --extract-config extract.config.regression \
-    $nnet_dir/${fold_index} ${data}/${fold_index}/test \
-    $nnet_dir/${fold_index}/xvectors_test_regression
+  sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd" --nj 60 \
+    $nnet_dir/${fold_index} ${data}/${fold_index}/train_5k \
+    $nnet_dir/${fold_index}/xvectors_train_5k
+  ) &
 fi
-cp $nnet_dir/${fold_index}/age2class ${data}/${fold_index}/test/
+wait;
+
+cp $nnet_dir/${fold_index}/age2class $nnet_dir/${fold_index}/xvectors_test/.
 
 if [ $stage -le 8 ]; then
   echo "Evaluate trained model on fold ${fold_index}."
-  local/evaluate_age.sh $data/${fold_index}/test \
+  local/evaluate_age.sh --train-post $nnet_dir/${fold_index}/xvectors_train_5k \
+    --prior-scale -0.8 --use-test-prior true $data/${fold_index}/test \
     $nnet_dir/${fold_index}/xvectors_test || exit 1;
-  local/evaluate_age.sh $data/${fold_index}/test \
-    $nnet_dir/${fold_index}/xvectors_test_regression || exit 1;
+  #local/evaluate_age.sh $data/${fold_index}/test \
+  #  $nnet_dir/${fold_index}/xvectors_test_regression || exit 1;
 fi
+
+exit 1;
 
 if [ $stage -le 9 ]; then
   logistic_dir=$nnet_dir/${fold_index}/logistic_regression

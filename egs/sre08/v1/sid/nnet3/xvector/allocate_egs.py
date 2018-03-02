@@ -254,7 +254,7 @@ def main():
     max_frames_per_chunk = int(min(args.max_frames_per_chunk, avg_frames_per_utt + 0.5 * std_frames_per_utt))
     min_frames_per_chunk = int(min(args.min_frames_per_chunk, avg_frames_per_utt - 0.5 * std_frames_per_utt))
 
-    assert(max_frames_per_chunk > min_frames_per_chunk)
+    assert(max_frames_per_chunk >= min_frames_per_chunk)
     if (max_frames_per_chunk < args.max_frames_per_chunk):
         print("max-frame-per-chunk {0} is larger than avg + 0.5 stddev for frames per utterances"
               " and smaller max-frame-per-chunk {1} is used for egs generation."

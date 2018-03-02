@@ -94,6 +94,13 @@ def get_args():
                         generated as configs/{cos,sin}_transform.mat.
                         """)
     # General options
+    parser.add_argument("--trainer.do-model-average", dest='do_model_average',
+                        type=str, default=True, choices=["true", "false"],
+                        action=common_lib.StrToBoolAction,
+                        help="If true, it averages parameters using "
+                             "list of models trained on different jobs, "
+                             "otherwise it selects the best model at end "
+                             "of each iterations.")
     parser.add_argument("--nj", type=int, default=4,
                         help="Number of parallel jobs")
     parser.add_argument("--use-dense-targets", type=str,
@@ -403,7 +410,8 @@ def train(args, run_opts):
                 use_multitask_egs=use_multitask_egs,
                 backstitch_training_scale=args.backstitch_training_scale,
                 backstitch_training_interval=args.backstitch_training_interval,
-                regularize_factors=args.regularize_factors)
+                regularize_factors=args.regularize_factors,
+                do_average=args.do_model_average)
 
             if args.cleanup:
                 # do a clean up everything but the last 2 models, under certain
