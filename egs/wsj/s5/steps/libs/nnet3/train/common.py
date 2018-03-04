@@ -35,6 +35,7 @@ class RunOpts(object):
     def __init__(self):
         self.command = None
         self.train_queue_opt = None
+        self.combine_gpu_opt = None
         self.combine_queue_opt = None
         self.prior_gpu_opt = None
         self.prior_queue_opt = None
@@ -535,7 +536,7 @@ def smooth_presoftmax_prior_scale_vector(pdf_counts,
         scales.append(math.pow(pdf_counts[i] + smooth * average_count,
                                presoftmax_prior_scale_power))
     num_pdfs = len(pdf_counts)
-    scaled_counts = map(lambda x: x * float(num_pdfs) / sum(scales), scales)
+    scaled_counts = list(map(lambda x: x * float(num_pdfs) / sum(scales), scales))
     return scaled_counts
 
 
@@ -856,6 +857,16 @@ class CommonParser(object):
                                  the final model combination stage.  These
                                  models will themselves be averages of
                                  iteration-number ranges""")
+        self.parser.add_argument("--trainer.optimization.max-objective-evaluations",
+                                 "--trainer.max-objective-evaluations",
+                                 type=int, dest='max_objective_evaluations',
+                                 default=30,
+                                 help="""The maximum number of objective
+                                 evaluations in order to figure out the
+                                 best number of models to combine. It helps to
+                                 speedup if the number of models provided to the
+                                 model combination binary is quite large (e.g.
+                                 several hundred).""")
         self.parser.add_argument("--trainer.optimization.do-final-combination",
                                  dest='do_final_combination', type=str,
                                  action=common_lib.StrToBoolAction,
@@ -865,9 +876,7 @@ class CommonParser(object):
                                  last-numbered model as the final.mdl).""")
         self.parser.add_argument("--trainer.optimization.combine-sum-to-one-penalty",
                                  type=float, dest='combine_sum_to_one_penalty', default=0.0,
-                                 help="""If > 0, activates 'soft' enforcement of the
-                                 sum-to-one penalty in combination (may be helpful
-                                 if using dropout).  E.g. 1.0e-03.""")
+                                 help="""This option is deprecated and does nothing.""")
         self.parser.add_argument("--trainer.optimization.momentum", type=float,
                                  dest='momentum', default=0.0,
                                  help="""Momentum used in update computation.
@@ -899,6 +908,11 @@ class CommonParser(object):
                                  lstm*=0,0.2,0'.  More general should precede
                                  less general patterns, as they are applied
                                  sequentially.""")
+        self.parser.add_argument("--trainer.add-option", type=str,
+                                 dest='train_opts', action='append', default=[],
+                                 help="""You can use this to add arbitrary options that
+                                 will be passed through to the core training code (nnet3-train
+                                 or nnet3-chain-train)""")
         self.parser.add_argument("--trainer.optimization.backstitch-training-scale",
                                  type=float, dest='backstitch_training_scale',
                                  default=0.0, help="""scale of parameters changes
