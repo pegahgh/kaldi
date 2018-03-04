@@ -19,6 +19,9 @@ use_test_prior=false # If provided, the xvector.scp in this directory is used
 age2class=           # the mapping from original class to new classes used to train model.
                      # This file can be generated using local/prepare_age_to_class_map.py
                      # If empty, it assumes the file is in xvector data dir.
+per_frame_output=false # If true, the output is per-frame-output (lstm network), otherwise
+                       # single frame is per utt for output.
+log_posterior=true   # If true, it assumes train_post is in log domain.
 . parse_options.sh || exit 1;
 
 echo "$0 $@"  # Print the command line for logging
@@ -32,6 +35,8 @@ xvector_data=$2
 
 dir=`dirname $data`
 model_dir=`dirname $xvector_data`
+apply_exp=false
+if $log_posterior; then apply_exp=true ;fi
 
 if [ -z $age2class ]; then
   #age2class=$xvector_data/age2class
@@ -43,12 +48,21 @@ if [ ! -f $age2class ]; then
   echo "$0: There is no age2class file $age2class."
   exit 1;
 fi
+if $per_frame_output;then
+  echo "$0: average posterior probability for all frames in utterances."
+  train_xvec="ark:copy-matrix --apply-exp=$apply_exp scp:$train_post/xvector.scp ark:- | matrix-sum-rows --average=true ark:- ark:- |"
+  test_xvec="ark:copy-matrix --apply-exp=$apply_exp scp:$xvector_data/xvector.scp ark:- | matrix-sum-rows --average=true ark:- ark:- |"
+  apply_exp=false # it is already applied.
+else
+  train_xvec="scp:$train_post/xvector.scp"
+  test_xvec="scp:$xvector_data/xvector.scp"
+fi
 
 if [ -f $train_post/xvector.scp ]; then
   num_test_utt=`wc -l $data/$utt2label_file | awk '{print $1}'`
 
   echo "$0: create uniform log prior to rebalance the model."
-  copy-vector --apply-exp=true scp:$train_post/xvector.scp ark:- | \
+  copy-vector --apply-exp=$apply_exp "$train_xvec" ark:- | \
   vector-sum --binary=false --average=true ark:- $xvector_data/prior.from.post.vec
 
   num_pdf=`wc -w $xvector_data/prior.from.post.vec | awk '{print $1-2}'`
@@ -75,7 +89,7 @@ if [ -f $train_post/xvector.scp ]; then
   # sum -log-prior from posterior to reballance the model to have uniform prior.
   copy-vector --apply-log=true ark:${xvector_data}/utt2prior.train ark:- | \
     copy-vector --scale=$prior_scale ark:- ark:- | \
-    vector-sum ark:- $test_prior scp:$xvector_data/xvector.scp ark,t:$xvector_data/norm_post
+    vector-sum ark:- $test_prior "$test_xvec" ark,t:$xvector_data/norm_post
 fi
 
 if [ -f $xvector_data/xvector.scp ]; then
