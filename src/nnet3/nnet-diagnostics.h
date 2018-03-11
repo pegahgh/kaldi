@@ -142,7 +142,8 @@ class NnetComputeProb {
   // This function returns the total objective over all output nodes recorded here, and
   // outputs to 'tot_weight' the total weight (typically the number of frames)
   // corresponding to it.
-  double GetTotalObjective(double *tot_weight) const;
+  double GetTotalObjective(double *tot_weight,
+                           std::string regularize_factors = "output:1.0") const;
 
   // if config.compute_deriv == true, returns a reference to the
   // computed derivative.  Otherwise crashes.

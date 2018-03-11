@@ -3,7 +3,7 @@
 # Copyright 2017 Pegah Ghahremani
 # Apache 2.0
 
-# This script evaluates age detection model trained using nnet3 model.
+# This script evaluates age or emotion detection model trained using nnet3 model.
 
 [ -f ./path.sh ] && . ./path.sh; # source the path.
 
@@ -22,6 +22,9 @@ age2class=           # the mapping from original class to new classes used to tr
 per_frame_output=false # If true, the output is per-frame-output (lstm network), otherwise
                        # single frame is per utt for output.
 log_posterior=true   # If true, it assumes train_post is in log domain.
+num_frames_to_avg=0    # If non-zero, this number of posteriors are summed or averaged in cases
+                     # where per_frame_output is true.
+                     # If < 0, the last rows are averaged.
 . parse_options.sh || exit 1;
 
 echo "$0 $@"  # Print the command line for logging
@@ -50,8 +53,8 @@ if [ ! -f $age2class ]; then
 fi
 if $per_frame_output;then
   echo "$0: average posterior probability for all frames in utterances."
-  train_xvec="ark:copy-matrix --apply-exp=$apply_exp scp:$train_post/xvector.scp ark:- | matrix-sum-rows --average=true ark:- ark:- |"
-  test_xvec="ark:copy-matrix --apply-exp=$apply_exp scp:$xvector_data/xvector.scp ark:- | matrix-sum-rows --average=true ark:- ark:- |"
+  train_xvec="ark:copy-matrix --apply-exp=$apply_exp scp:$train_post/xvector.scp ark:- | matrix-sum-rows --n=$num_frames_to_avg --average=true ark:- ark:- |"
+  test_xvec="ark:copy-matrix --apply-exp=$apply_exp scp:$xvector_data/xvector.scp ark:- | matrix-sum-rows --n=$num_frames_to_avg --average=true ark:- ark:- |"
   apply_exp=false # it is already applied.
 else
   train_xvec="scp:$train_post/xvector.scp"
@@ -93,7 +96,7 @@ if [ -f $train_post/xvector.scp ]; then
 fi
 
 if [ -f $xvector_data/xvector.scp ]; then
-  for x in $xvector_data/spk_xvector.scp $data/$utt2label_file; do
+  for x in $data/$utt2label_file; do
     [ ! -f $x ] && echo "$0: file $x does not exist" && exit 1;
   done
   if $per_frame_output; then
@@ -155,7 +158,14 @@ compute-wer --mode=present --text \
 
 if [ -f $data/utt2num_frames ]; then
   utils/apply_map.pl -f 3 $data/utt2num_frames < $xvector_data/tmp_f | \
-    awk '{if ($2 != $4) print $1" "$2" "$4" "$3}' | sort -k 2 > $xvector_data/utt.true.predicted.len
+    awk '{print $1" "$2" "$4" "$3}' | sort -k 4 -n > $xvector_data/utt.true.predicted.len
+  cat $xvector_data/utt.true.predicted.len | awk -v len=100 '{m=0; i=int($4/len); if (i >= m) m=i ; b[i]++; if ($2 == $3) a[i]++;} END {for (j=0; j <= m; j++) print "for utt length "j*len"-"(j+1)*len-1 ", accuracy = " a[j]/((b[j] > 0) ? b[j] : 1) " with " ((b[j] > 0) ? b[j] : 0) " examples."}' > $xvector_data/len.vs.acc
 fi
 
-
+echo "--prior-scale=$prior_scale" > $xvector_data/prior_norm
+if [ -z $train_post ]; then
+  echo "--use-train-post=false" >> $xvector_data/prior_norm
+else
+  echo "--use-train-post=true" >> $xvector_data/prior_norm
+fi
+echo "--use-test-prior=$use_test_prior" >> $xvector_data/prior_norm

@@ -538,15 +538,11 @@ def combine_models(dir, num_iters, models_to_combine, egs_dir,
         """{command} {combine_queue_opt} {dir}/log/combine.log \
                 nnet3-combine {combine_gpu_opt} \
                 --max-objective-evaluations={max_objective_evaluations} \
-                --num-iters=30 \
                 --regularize-factors={regularize_factors} \
-                --enforce-sum-to-one={hard_enforce} \
-                --sum-to-one-penalty={penalty} \
-                --enforce-positive-weights=true \
                 --verbose=3 {raw_models} \
                 "ark,bg:nnet3-copy-egs {multitask_egs_opts} \
                     {egs_rspecifier} ark:- | \
-                      nnet3-merge-egs --minibatch-size=1:{mbsize} ark:- ark:- |" \
+                      nnet3-merge-egs --minibatch-size=1:64 ark:- ark:- |" \
                 "{out_model}"
         """.format(command=run_opts.command,
                    combine_queue_opt=run_opts.combine_queue_opt,

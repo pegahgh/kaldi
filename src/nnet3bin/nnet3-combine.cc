@@ -97,7 +97,8 @@ int main(int argc, char *argv[]) {
     bool batchnorm_test_mode = false,
         dropout_test_mode = true,
         shift_input_test_mode = true;
-    std::string use_gpu = "yes";
+    std::string use_gpu = "yes",
+      regularize_factors = "output:1.0";
 
     ParseOptions po(usage);
     po.Register("binary", &binary_write, "Write output in binary mode");
@@ -105,18 +106,23 @@ int main(int argc, char *argv[]) {
                 "maximum number of objective evaluations in order to figure "
                 "out the best number of models to combine. It helps to speedup "
                 "if the number of models provided to this binary is quite "
-                "large (e.g. several hundred)."); 
+                "large (e.g. several hundred).");
     po.Register("batchnorm-test-mode", &batchnorm_test_mode,
                 "If true, set test-mode to true on any BatchNormComponents "
                 "while evaluating objectives.");
     po.Register("dropout-test-mode", &dropout_test_mode,
                 "If true, set test-mode to true on any DropoutComponents and "
-                "DropoutMaskComponents while evaluating objectives.");                                                                                                    
+                "DropoutMaskComponents while evaluating objectives.");
     po.Register("shift-input-test-mode", &shift_input_test_mode,
                 "If true, set the test mode to be true for ShiftInputComponent.");
     po.Register("use-gpu", &use_gpu,
                 "yes|no|optional|wait, only has effect if compiled with CUDA");
-
+    po.Register("regularize-factors", &regularize_factors,
+                   "Comma-separated pairs of output-name and its regulazitation factor ."
+                   "as output-name:regularization-factor. "
+                   "e.g. output:1.0,output-regression:0.2 means "
+                   "reugularization factor 1.0 and 0.2 for classification and "
+                   "regression objective functions.");
     po.Read(argc, argv);
 
     if (po.NumArgs() < 3) {

@@ -23,7 +23,8 @@ def generate_egs_using_targets(data, targets_scp, egs_dir,
                                left_context_initial=-1, right_context_final=-1,
                                online_ivector_dir=None,
                                target_type='dense', num_targets=-1,
-                               samples_per_iter=20000, frames_per_eg_str="20",
+                               samples_per_iter=20000, frames_per_iter=-1,
+                               frames_per_eg_str="20",
                                srand=0, egs_opts=None, cmvn_opts=None,
                                transform_dir=None,
                                use_scp_for_target=True):
@@ -50,7 +51,7 @@ def generate_egs_using_targets(data, targets_scp, egs_dir,
                             "target-type is sparse")
 
     common_lib.execute_command(
-        """steps/nnet3/get_egs_targets.sh {egs_opts} \
+        """steps/nnet3/get_egs_targets{affix}.sh {egs_opts} \
                 --cmd "{command}" \
                 --cmvn-opts "{cmvn_opts}" \
                 --transform-dir "{transform_dir}" \
@@ -66,6 +67,7 @@ def generate_egs_using_targets(data, targets_scp, egs_dir,
                 --target-type {target_type} \
                 --num-targets {num_targets} \
                 --use-scp-for-target {use_scp_for_target} \
+                --frames-per-iter {frames_per_iter} \
                 {data} {targets_scp} {egs_dir}
         """.format(command=run_opts.egs_command,
                    cmvn_opts=cmvn_opts if cmvn_opts is not None else '',
@@ -86,4 +88,6 @@ def generate_egs_using_targets(data, targets_scp, egs_dir,
                    targets_scp=targets_scp, target_type=target_type,
                    egs_dir=egs_dir,
                    egs_opts=egs_opts if egs_opts is not None else '',
-                   use_scp_for_target=('true' if use_scp_for_target  else 'false')))
+                   use_scp_for_target=('true' if use_scp_for_target  else 'false'),
+                   frames_per_iter=frames_per_iter,
+                   affix=('_v2' if frames_per_iter > -1 else '')))

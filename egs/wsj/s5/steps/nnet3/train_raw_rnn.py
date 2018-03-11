@@ -67,6 +67,13 @@ def get_args():
                         a comma-separated list of alternatives: first width
                         is the 'principal' chunk-width, used preferentially""")
 
+    parser.add_argument("--trainer.frames-per-iter", type=int,
+                        dest='frames_per_iter', default=-1,
+                        help="""Each iteration of training, see this many
+                        [input] frames per job.  This option is passed to
+                        get_egs.sh.  Aim for about a minute of training
+                        time""")
+
     # trainer options
     parser.add_argument("--trainer.samples-per-iter", type=int,
                         dest='samples_per_iter', default=20000,
@@ -310,7 +317,8 @@ def train(args, run_opts):
             stage=args.egs_stage,
             target_type=target_type,
             num_targets=num_targets,
-            use_scp_for_target=args.use_scp_for_target)
+            use_scp_for_target=args.use_scp_for_target,
+            frames_per_iter=args.frames_per_iter)
 
     if args.egs_dir is None:
         egs_dir = default_egs_dir
@@ -425,6 +433,18 @@ def train(args, run_opts):
                                            args.shrink_saturation_threshold,
                                            get_raw_nnet_from_am=False)
                                    else shrinkage_value)
+            percent = num_archives_processed * 100.0 / num_archives_to_process
+            epoch = (num_archives_processed * args.num_epochs
+                     / num_archives_to_process)
+            shrink_info_str = ''
+            if shrinkage_value != 1.0:
+                shrink_info_str = 'shrink: {0:0.5f}'.format(shrinkage_value)
+            logger.info("Iter: {0}/{1}    "
+                        "Epoch: {2:0.2f}/{3:0.1f} ({4:0.1f}% complete)    "
+                        "lr: {5:0.6f}    {6}".format(iter, num_iters - 1,
+                                                     epoch, args.num_epochs,
+                                                     percent,
+                                                     lrate, shrink_info_str))
 
             train_lib.common.train_one_iteration(
                 dir=args.dir,

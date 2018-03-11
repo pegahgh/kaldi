@@ -35,11 +35,15 @@ int main(int argc, char *argv[]) {
         "See also: matrix-sum, vector-sum\n";
 
     bool average = false;
+    int32 num_rows = 0;
     ParseOptions po(usage);
 
     po.Register("average", &average, "If true, compute average instead of "
                 "sum.");
-
+    po.Register("n", &num_rows, "If non_zero, the output is sum of n "
+                "consequent rows of matrix (average, if average is true)."
+                "If n < 0, summation contains the last n rows and n > 0, then "
+                "the first n rows are summed.");
     po.Read(argc, argv);
 
     if (po.NumArgs() != 2) {
@@ -54,16 +58,25 @@ int main(int argc, char *argv[]) {
     
     int32 num_done = 0;
     int64 num_rows_done = 0;
-    
     for (; !mat_reader.Done(); mat_reader.Next()) {
       std::string key = mat_reader.Key();
       Matrix<double> mat(mat_reader.Value());
       Vector<double> vec(mat.NumCols());
-      vec.AddRowSumMat(1.0, mat, 0.0);
+      int32 r1 = 0, r2 = mat.NumRows();
+      if (num_rows < -1 * r2 || num_rows > r2) {
+        KALDI_LOG << "Num of frames, " << r2
+                  << ", is less than --n=" << abs(num_rows);
+      } else {
+        if (num_rows != 0) {
+            r1 = (num_rows > 0 ? 0 : r2 + num_rows);
+            r2 = (num_rows > 0 ? 1 : -1) * num_rows;
+        }
+      }
+      vec.AddRowSumMat(1.0, mat.RowRange(r1,r2), 0.0);
       // Do the summation in double, to minimize roundoff.
       Vector<BaseFloat> float_vec(vec);
       if (average)
-        float_vec.Scale(1.0/float(mat.NumRows()));
+        float_vec.Scale(1.0/float(r2));
       vec_writer.Write(key, float_vec);
       num_done++;
       num_rows_done += mat.NumRows();

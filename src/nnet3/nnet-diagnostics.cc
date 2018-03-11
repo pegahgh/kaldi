@@ -324,13 +324,34 @@ const SimpleObjectiveInfo* NnetComputeProb::GetObjective(
     return NULL;
 }
 
-double NnetComputeProb::GetTotalObjective(double *tot_weight) const {
+// regularize_factor_str is comma-separated list of output:reg values.
+// This function splits the regularize_str, which maps output name to regularizer.
+void RegularizeFactors(std::string regularize_factor_str,
+                       std::map<std::string, BaseFloat> *output_to_reg) {
+  std::vector<std::string> outputs_vs_regs;
+  SplitStringToVector(regularize_factor_str, ",", true, &outputs_vs_regs);
+  for (int32 n = 0; n < outputs_vs_regs.size(); n++) {
+    std::vector<std::string> output_vs_reg;
+    SplitStringToVector(outputs_vs_regs[n], ":", true, &output_vs_reg);
+    KALDI_ASSERT(output_vs_reg.size() == 2); // output_name:output_reg
+    BaseFloat reg_value = std::stof(output_vs_reg[1]);
+    (*output_to_reg)[output_vs_reg[0]] = reg_value;
+  }
+}
+
+double NnetComputeProb::GetTotalObjective(double *tot_weight,
+                                          std::string regularize_factors) const {
+  std::map<std::string, BaseFloat> output_to_reg;
+  RegularizeFactors(regularize_factors, &output_to_reg);
   double tot_objectives = 0.0;
   *tot_weight = 0.0;
   unordered_map<std::string, SimpleObjectiveInfo, StringHasher>::const_iterator
     iter = objf_info_.begin(), end = objf_info_.end();
   for (; iter != end; ++iter) {
-    tot_objectives += iter->second.tot_objective;
+    BaseFloat regularize = 1.0;
+    if (output_to_reg.find(iter->first) != output_to_reg.end())
+        regularize = output_to_reg[iter->first];
+    tot_objectives += regularize * iter->second.tot_objective;
     (*tot_weight) += iter->second.tot_weight;
   }
   return tot_objectives;
