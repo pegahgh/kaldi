@@ -1285,6 +1285,18 @@ void AffineComponent::Read(std::istream &is, bool binary) {
   linear_params_.Read(is, binary);
   ExpectToken(is, binary, "<BiasParams>");
   bias_params_.Read(is, binary);
+  std::string token;
+  ReadToken(is, binary, &token);
+  if (token == "<IsGradient>") {
+    ReadBasicType(is, binary, &is_gradient_);
+    ReadToken(is, binary, &token);
+  }
+  if (token == "<OrthonormalConstraint>") {
+    ReadBasicType(is, binary, &orthonormal_constraint_);
+    ReadToken(is, binary, &token);
+  }
+  KALDI_ASSERT(token == "</AffineComponent>");
+  /*
   if (PeekToken(is, binary) == 'I') {
     // for back compatibility; we don't write this here any
     // more as it's written and read in Write/ReadUpdatableCommon
@@ -1297,7 +1309,8 @@ void AffineComponent::Read(std::istream &is, bool binary) {
   } else {
     orthonormal_constraint_ = 0.0;
   }
-  ExpectToken(is, binary, "</AffineComponent>");
+  ExpectToken(is, binary, std::string("</") + Type() + std::string(">"));
+  */
 }
 
 void AffineComponent::Write(std::ostream &os, bool binary) const {

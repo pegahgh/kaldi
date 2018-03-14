@@ -22,6 +22,7 @@ trap "" PIPE
 
 # Begin configuration section.
 cmd=run.pl
+frames_per_iter=-1
 target_type=sparse  # dense to have dense targets,
                     # sparse to have posteriors targets
 num_targets=        # required for target-type=sparse with raw nnet
