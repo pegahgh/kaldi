@@ -61,7 +61,7 @@ if [ -f $srcdir/$extract_config ] ; then
   nnet="nnet3-copy --nnet-config=$srcdir/$extract_config $srcdir/${model}.raw - |"
 fi
 
-# generate subset of data with utt lenght larger than $num_frames to be computable by model.
+# generate subset of data with utt length larger than $num_frames to be computable by model.
 name=`basename $data`
 tmp=$srcdir/${name}_tmp
 mkdir -p $tmp
