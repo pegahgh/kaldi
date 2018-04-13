@@ -80,9 +80,6 @@ static void GetIoSizes(const std::vector<NnetExample> &src,
   }
 }
 
-
-
-
 // Do the final merging of NnetIo, once we have obtained the names, dims and
 // sizes for each feature/supervision type.
 static void MergeIo(const std::vector<NnetExample> &src,
