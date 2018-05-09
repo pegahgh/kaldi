@@ -16,6 +16,7 @@
 
 # begin configuration section
 cleanup=true
+frame_shift=0.01
 # end configuration section
 
 . utils/parse_options.sh
@@ -69,7 +70,7 @@ set -e
 set -o pipefail
 
 # make sure $srcdir/utt2dur exists.
-utils/data/get_utt2dur.sh $srcdir
+utils/data/get_utt2dur.sh --frame-shift $frame_shift $srcdir
 
 utils/data/internal/choose_utts_to_combine.py --min-duration=$min_seg_len \
   $srcdir/spk2utt $srcdir/utt2dur $dir/utt2utts $dir/utt2spk $dir/utt2dur

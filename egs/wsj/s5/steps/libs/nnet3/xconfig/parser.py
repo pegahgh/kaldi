@@ -75,6 +75,8 @@ config_to_layer = {
         'relu-renorm-attention-layer': xlayers.XconfigAttentionLayer,
         'renorm-component': xlayers.XconfigRenormComponent,
         'preprocess-fft-abs-norm-lognorm-affine-log-layer': xlayers.XconfigFftFilterLayer,
+        'multi-preprocess-fft-abs-lognorm-affine-log-layer': xlayers.XconfigMultiFftFilterLayer,
+        'multix-preprocess-fft-abs-lognorm-affine-log-layer': xlayers.XconfigMultiFftFilterLayerX,
         'preprocess-fft-abs-lognorm-affine-log-layer': xlayers.XconfigFftFilterLayer,
         'preprocess-fft-abs-log-layer': xlayers.XconfigFftFilterLayer,
         'preprocess-tconv-abs-log-nin-affine-layer': xlayers.XconfigTimeDomainLayer,

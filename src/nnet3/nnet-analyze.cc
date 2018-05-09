@@ -1475,7 +1475,7 @@ int64 GetMaxMemoryUse(const NnetComputation &computation) {
       default:
         break;
     }
-    KALDI_ASSERT(cur_memory_use >= 0);
+    //KALDI_ASSERT(cur_memory_use >= 0);
     if (cur_memory_use > max_memory_use)
       max_memory_use = cur_memory_use;
   }

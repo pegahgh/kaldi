@@ -4784,7 +4784,8 @@ ShiftInputComponent::ShiftInputComponent(const ShiftInputComponent &other):
   rand_vol_var_(other.rand_vol_var_),
   shift_per_frame_(other.shift_per_frame_),
   dither_(other.dither_),
-  preprocess_(other.preprocess_) { }
+  preprocess_(other.preprocess_),
+  window_power_(other.window_power_) { }
 
 Component* ShiftInputComponent::Copy() const {
   ShiftInputComponent *ans = new ShiftInputComponent(*this);
@@ -4798,19 +4799,23 @@ std::string ShiftInputComponent::Info() const {
          << ", max-shift=" << max_shift_
          << ", shift-per-frame=" << shift_per_frame_
          << ", dither=" << dither_
-         << ", preprocess=" << preprocess_;
+         << ", preprocess=" << preprocess_
+         << ", window-power=" << window_power_;
   return stream.str();
 }
 
 void ShiftInputComponent::Init(int32 input_dim, int32 output_dim, BaseFloat max_shift,
     BaseFloat rand_vol_var,
-    BaseFloat dither, bool preprocess) {
+    BaseFloat dither, bool preprocess,
+    BaseFloat window_power) {
   input_dim_ = input_dim;
   output_dim_ = output_dim;
   max_shift_ = max_shift;
   rand_vol_var_ = rand_vol_var;
   dither_ = dither;
   preprocess_ = preprocess;
+  window_power_ = window_power;
+  KALDI_ASSERT(window_power_ > 0.0);
   KALDI_ASSERT(input_dim_ - output_dim_ >= 0 && input_dim_ > 0);
   KALDI_ASSERT(max_shift >= 0.0 && max_shift <= 1.0);
   KALDI_ASSERT(rand_vol_var >= 0.0 && rand_vol_var <= 1.0);
@@ -4820,7 +4825,7 @@ void ShiftInputComponent::InitFromConfig(ConfigLine *cfl) {
   bool ok = true, preprocess = false;
   test_mode_ = false;
   int32 input_dim, output_dim;
-  BaseFloat max_shift = 1.0, rand_vol_var = 0.0, dither = 0.0;
+  BaseFloat max_shift = 1.0, rand_vol_var = 0.0, dither = 0.0, window_power = 0.85;
   ok = ok && cfl->GetValue("input-dim", &input_dim);
   ok = ok && cfl->GetValue("output-dim", &output_dim);
   // It only makes sense to set test-mode in the config for testing purposes.
@@ -4832,7 +4837,8 @@ void ShiftInputComponent::InitFromConfig(ConfigLine *cfl) {
   cfl->GetValue("shift-per-frame", &shift_per_frame_);
   cfl->GetValue("dither", &dither);
   cfl->GetValue("preprocess", &preprocess);
-  Init(input_dim, output_dim, max_shift, rand_vol_var, dither, preprocess);
+  cfl->GetValue("window-power", &window_power);
+  Init(input_dim, output_dim, max_shift, rand_vol_var, dither, preprocess, window_power);
 }
 
 void ShiftInputComponent::Read(std::istream &is, bool binary) {
@@ -4862,6 +4868,10 @@ void ShiftInputComponent::Read(std::istream &is, bool binary) {
     ReadBasicType(is, binary, &preprocess_);
     ReadToken(is, binary, &token);
   }
+  if (token == "<WindowPower>") {
+    ReadBasicType(is, binary, &window_power_);
+    ReadToken(is, binary, &token);
+  }
 
   if (token == "<TestMode>") {
     ReadBasicType(is, binary, &test_mode_);  // read test mode
@@ -4888,6 +4898,8 @@ void ShiftInputComponent::Write(std::ostream &os, bool binary) const {
   WriteBasicType(os, binary, dither_);
   WriteToken(os, binary, "<Preprocess>");
   WriteBasicType(os, binary, preprocess_);
+  WriteToken(os, binary, "<WindowPower>");
+  WriteBasicType(os, binary, window_power_);
   WriteToken(os, binary, "<TestMode>");
   WriteBasicType(os, binary, test_mode_);
   WriteToken(os, binary, "</ShiftInputComponent>");
@@ -4963,7 +4975,7 @@ void ShiftInputComponent::Preprocess(CuMatrixBase<BaseFloat> *preprocessed_in) c
   double a = M_2PI / (dim-1);
   for (int32 i = 1; i < dim-1; i++) {
     double i_fl = static_cast<double>(i);
-    window(i) = std::pow(0.5 - 0.5 * cos(a * i_fl), 0.85);
+    window(i) = std::pow(0.5 - 0.5 * cos(a * i_fl), window_power_);
   }
   window(0) = window(1);
   window(dim - 1) = window(dim - 2);

@@ -188,7 +188,8 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                         backstitch_training_interval=1,
                         compute_per_dim_accuracy=False,
                         regularize_factors=None,
-                        do_average=True):
+                        do_average=True,
+                        average_threshold=1.0):
     """ Called from steps/nnet3/train_*.py scripts for one iteration of neural
     network training
 
@@ -292,7 +293,8 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                      regularize_factors=regularize_factors)
 
     [models_to_average, best_model, do_average_bkup] = common_train_lib.get_successful_models(
-         num_jobs, '{0}/log/train.{1}.%.log'.format(dir, iter))
+         num_jobs, '{0}/log/train.{1}.%.log'.format(dir, iter),
+         difference_threshold=average_threshold)
     nnets_list = []
     for n in models_to_average:
         nnets_list.append("{0}/{1}.{2}.raw".format(dir, iter + 1, n))

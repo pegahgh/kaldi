@@ -51,8 +51,11 @@ void NnetChainSupervision::Read(std::istream &is, bool binary) {
   ReadToken(is, binary, &token);
   // in the future this back-compatibility code can be reworked.
   if (token != "</NnetChainSup>") {
-    KALDI_ASSERT(token == "<DW>");
-    ReadVectorAsChar(is, binary, &deriv_weights);
+    KALDI_ASSERT(token == "<DW>" || token == "<DW2>");
+    if (token == "<DW>")
+      ReadVectorAsChar(is, binary, &deriv_weights);
+    else
+      deriv_weights.Read(is, binary);
     ExpectToken(is, binary, "</NnetChainSup>");
   }
   CheckDim();

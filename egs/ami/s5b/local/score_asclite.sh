@@ -12,6 +12,7 @@ max_lmwt=15
 asclite=true
 iter=final
 overlap_spk=4
+frame_shift=0.01
 # end configuration section.
 [ -f ./path.sh ] && . ./path.sh
 . parse_options.sh || exit 1;
@@ -46,7 +47,7 @@ if [ -f $dir/../frame_shift ]; then
   echo "$0: $dir/../frame_shift exists, using $frame_shift_opt"
 elif [ -f $dir/../frame_subsampling_factor ]; then
   factor=$(cat $dir/../frame_subsampling_factor) || exit 1
-  frame_shift_opt="--frame-shift=0.0$factor"
+  frame_shift_opt="--frame-shift=`echo $frame_shift $factor | awk '{print $1*$2}'`"
   echo "$0: $dir/../frame_subsampling_factor exists, using $frame_shift_opt"
 fi
 

@@ -103,6 +103,10 @@ utils/apply_map.pl -f 2 $srcdir/utt2spk < $dir/new2old_utt >$dir/utt2spk
 # .. and the new spk2utt file.
 utils/utt2spk_to_spk2utt.pl  <$dir/utt2spk >$dir/spk2utt
 
+if [ -f $srcdir/utt2age ]; then
+  utils/apply_map.pl -f 2 $srcdir/utt2age < $dir/new2old_utt >$dir/utt2age
+fi
+
 if $add_subsegment_text; then
   # the new text file is just what the user provides.
   cp $new_text $dir/text

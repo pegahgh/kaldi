@@ -32,6 +32,7 @@ extra_left_context_initial=-1
 extra_right_context_final=-1
 online_ivector_dir=
 minimize=false
+ivector_period=
 # End configuration section.
 
 echo "$0 $@"  # Print the command line for logging
@@ -116,7 +117,9 @@ fi
 ##
 
 if [ ! -z "$online_ivector_dir" ]; then
-  ivector_period=$(cat $online_ivector_dir/ivector_period) || exit 1;
+  if [ -z $ivector_period ]; then
+    ivector_period=$(cat $online_ivector_dir/ivector_period) || exit 1;
+  fi
   ivector_opts="--online-ivectors=scp:$online_ivector_dir/ivector_online.scp --online-ivector-period=$ivector_period"
 fi
 
@@ -163,6 +166,7 @@ if [ $stage -le 3 ]; then
       echo "Not scoring because local/score.sh does not exist or not executable." && exit 1;
     echo "score best paths"
     [ "$iter" != "final" ] && iter_opt="--iter $iter"
+    echo "scoring-opts = $scoring_opts"
     local/score.sh $scoring_opts --cmd "$cmd" $data $graphdir $dir
     echo "score confidence and timing with sclite"
   fi

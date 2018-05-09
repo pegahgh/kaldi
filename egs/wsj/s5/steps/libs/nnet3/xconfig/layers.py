@@ -11,3 +11,5 @@ from .gru import *
 from .stats_layer import *
 from .trivial_layers import *
 from .raw_signal import *
+from .raw_signal_multiscale import *
+from .raw_signal_multiscale_v2 import *

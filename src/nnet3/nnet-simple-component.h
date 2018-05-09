@@ -2289,7 +2289,8 @@ class LstmNonlinearityComponent: public UpdatableComponent {
 class ShiftInputComponent: public RandomComponent {
  public:
   void Init(int32 input_dim, int32 output_dim, BaseFloat max_shift,
-    BaseFloat rand_vol_var = 0.0, BaseFloat dither = 0.0, bool preprocess = false);
+    BaseFloat rand_vol_var = 0.0, BaseFloat dither = 0.0, bool preprocess = false,
+    BaseFloat window_power = 0.85);
 
   explicit ShiftInputComponent(const ShiftInputComponent &other);
 
@@ -2297,11 +2298,12 @@ class ShiftInputComponent: public RandomComponent {
                                BaseFloat max_shift,
                                BaseFloat rand_vol_var = 0.0,
                                BaseFloat dither = 0.0,
-                               bool preprocess = false) {
-      Init(input_dim, output_dim, max_shift, rand_vol_var, dither, preprocess); }
+                               bool preprocess = false,
+                               BaseFloat window_power = 0.85) {
+      Init(input_dim, output_dim, max_shift, rand_vol_var, dither, preprocess, window_power); }
   ShiftInputComponent(): input_dim_(0), output_dim_(0), max_shift_(1.0),
     rand_vol_var_(0.0), shift_per_frame_(false), dither_(0.0),
-    preprocess_(false) { }
+    preprocess_(false), window_power_(0.85) { }
 
   virtual std::string Type() const { return "ShiftInputComponent"; }
   virtual std::string Info() const;
@@ -2346,6 +2348,7 @@ class ShiftInputComponent: public RandomComponent {
                      // This is done on both test and train.
   bool preprocess_; // If true, the preemphasis, mean-removal and windowing is applied
                     // on outputs.
+  BaseFloat window_power_; // power used in povey window.
 };
 
 // The PowerComponent is ((x_i+delta_i)^2)^p_i - (delta_i^2)^p_i, and the delta and P are

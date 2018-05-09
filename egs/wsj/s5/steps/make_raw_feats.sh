@@ -65,7 +65,7 @@ for f in $required; do
   fi
 done
 
-utils/validate_data_dir.sh --no-text --no-feats $data || exit 1;
+#utils/validate_data_dir.sh --no-text --no-feats $data || exit 1;
 
 for n in $(seq $nj); do
   # the next command does nothing unless $featdir/storage/ exists, see

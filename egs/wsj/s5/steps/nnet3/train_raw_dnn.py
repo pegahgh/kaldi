@@ -81,6 +81,10 @@ def get_args():
                         choices=["true", "false"], default=False,
                         help="""If true, then the average output of the
                         network is computed and dumped as post.final.vec""")
+    parser.add_argument("--trainer.average-threshold", type=str,
+                        dest='average_threshold', default=1.0,
+                        help="difference threshold used in accepting models used"
+                            "in model averaging.")
     parser.add_argument("--trainer.regularize-factors", type=str,
                         dest='regularize_factors', default=1.0,
                         help="comm-separated string, which maps output name to "
@@ -414,7 +418,8 @@ def train(args, run_opts):
                 backstitch_training_scale=args.backstitch_training_scale,
                 backstitch_training_interval=args.backstitch_training_interval,
                 regularize_factors=args.regularize_factors,
-                do_average=args.do_model_average)
+                do_average=args.do_model_average,
+                average_threshold=args.average_threshold)
 
             if args.cleanup:
                 # do a clean up everything but the last 2 models, under certain
@@ -445,7 +450,6 @@ def train(args, run_opts):
                 models_to_combine=models_to_combine, egs_dir=egs_dir,
                 minibatch_size_str=args.minibatch_size, run_opts=run_opts,
                 get_raw_nnet_from_am=False,
-                sum_to_one_penalty=args.combine_sum_to_one_penalty,
                 regularize_factors=args.regularize_factors,
                 max_objective_evaluations=args.max_objective_evaluations,
                 use_multitask_egs=use_multitask_egs)

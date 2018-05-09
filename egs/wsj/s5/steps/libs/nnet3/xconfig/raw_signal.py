@@ -47,6 +47,7 @@ class XconfigFftFilterLayer(XconfigLayerBase):
                         'num-filters' : 100,
                         'sin-transform-file' : '',
                         'cos-transform-file' : '',
+                        'fft_dim' : None,
                         'scale': 1.0,
                         'half-fft-range' : False} # l2-regularize and min-param-value
                                                    # and max-param-value affects
@@ -87,7 +88,10 @@ class XconfigFftFilterLayer(XconfigLayerBase):
                 output_dim = output_dim + 1
         else:
             input_dim = self.descriptors['input']['dim']
-            fft_dim = (2**(input_dim-1).bit_length())
+            if self.config['fft-dim']  is None:
+                fft_dim = (2**(input_dim-1).bit_length())
+            else:
+                fft_dim = self.config['fft-dim']
             half_fft_range = self.config['half-fft-range']
             output_dim = (fft_dim/2 if half_fft_range is True else fft_dim)
         return output_dim

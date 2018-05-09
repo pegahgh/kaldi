@@ -14,6 +14,7 @@ min_lmwt=5
 max_lmwt=17
 iter=final
 word_ins_penalty=0.0,0.5,1.0
+frame_shift=0.01
 #end configuration section.
 
 [ -f ./path.sh ] && . ./path.sh
@@ -30,10 +31,9 @@ if [ $# -ne 3 ]; then
 fi
 
 data=$1
-
 if [ -f $data/stm ]; then # use sclite scoring.
   echo "$data/stm exists: using local/score_sclite.sh"
-  eval local/score_sclite.sh $orig_args
+  eval local/score_sclite.sh --frame-shift $frame_shift $orig_args
 else
   echo "$data/stm does not exist: using local/score_basic.sh"
   eval local/score_basic.sh $orig_args
