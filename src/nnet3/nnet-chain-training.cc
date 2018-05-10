@@ -68,7 +68,7 @@ void NnetChainTrainer::Train(const NnetChainExample &chain_eg) {
                              nnet_config.store_component_stats,
                              use_xent_regularization, need_model_derivative,
                              &request);
-  const NnetComputation *computation = compiler_.Compile(request);
+  std::shared_ptr<const NnetComputation> computation = compiler_.Compile(request);
 
   if (nnet_config.backstitch_training_scale > 0.0 && num_minibatches_processed_
       % nnet_config.backstitch_training_interval ==
@@ -249,16 +249,14 @@ void NnetChainTrainer::TrainInternalBackstitch(const NnetChainExample &eg,
     // delta_nnet is scaled by 1 + backstitch_training_scale when added to nnet;
     max_change_scale = 1.0 + nnet_config.backstitch_training_scale;
     scale_adding = 1.0 + nnet_config.backstitch_training_scale;
+    // If relevant, add in the part of the gradient that comes from L2
+    // regularization.  It may not be optimally inefficient to do it on both
+    // passes of the backstitch, like we do here, but it probably minimizes
+    // any harmful interactions with the max-change.
+    ApplyL2Regularization(*nnet_,
+        1.0 / scale_adding * GetNumNvalues(eg.inputs, false) *
+        nnet_config.l2_regularize_factor, delta_nnet_);
   }
-
-  // If relevant, add in the part of the gradient that comes from L2
-  // regularization.  It may not be optimally inefficient to do it on both
-  // passes of the backstitch, like we do here, but it probably minimizes
-  // any harmful interactions with the max-change.
-  ApplyL2Regularization(*nnet_,
-                        scale_adding * GetNumNvalues(eg.inputs, false) *
-                        nnet_config.l2_regularize_factor,
-                        delta_nnet_);
 
   // Updates the parameters of nnet
   UpdateNnetWithMaxChange(*delta_nnet_,

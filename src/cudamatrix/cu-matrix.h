@@ -399,6 +399,13 @@ class CuMatrixBase {
   void ApplyCeiling(Real ceiling_val);
   void ApplyExp();
 
+
+  /// This is equivalent to running:
+  /// ApplyFloor(lower_limit);
+  /// ApplyCeiling(upper_limit);
+  /// ApplyExp()
+  void ApplyExpLimited(Real lower_limit, Real upper_limit);
+
   /// For each element x of the matrix, set it to
   /// (x < 0 ? exp(x) : x + 1).  This function is used
   /// in our RNNLM training.
@@ -686,8 +693,8 @@ class CuMatrixBase {
 
   // The following two functions should only be called if we did not compile
   // with CUDA or could not get a CUDA card; in that case the contents are
-  // interpreted the same as a regular matrix.  Don't use these unless you know
-  // what you are doing!
+  // interpreted the same as a regular matrix.  DON'T USE THESE UNLESS YOU KNOW
+  // WHAT YOU ARE DOING!
   inline const MatrixBase<Real> &Mat() const {
     return *(reinterpret_cast<const MatrixBase<Real>* >(this));
   }

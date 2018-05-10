@@ -54,7 +54,6 @@ def generate_egs_using_targets(data, targets_scp, egs_dir,
         """steps/nnet3/get_egs_targets{affix}.sh {egs_opts} \
                 --cmd "{command}" \
                 --cmvn-opts "{cmvn_opts}" \
-                --transform-dir "{transform_dir}" \
                 --online-ivector-dir "{ivector_dir}" \
                 --left-context {left_context} \
                 --right-context {right_context} \
@@ -71,9 +70,6 @@ def generate_egs_using_targets(data, targets_scp, egs_dir,
                 {data} {targets_scp} {egs_dir}
         """.format(command=run_opts.egs_command,
                    cmvn_opts=cmvn_opts if cmvn_opts is not None else '',
-                   transform_dir=(transform_dir
-                                  if transform_dir is not None
-                                  else ''),
                    ivector_dir=(online_ivector_dir
                                 if online_ivector_dir is not None
                                 else ''),
