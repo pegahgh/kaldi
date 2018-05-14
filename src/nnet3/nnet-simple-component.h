@@ -1857,6 +1857,8 @@ class ScaleAndOffsetComponent: public UpdatableComponent {
 
   // copy constructor
   explicit ScaleAndOffsetComponent(const ScaleAndOffsetComponent &other);
+ protected:
+  void Init(std::string matrix_filename, int32 block_dim);
  private:
   // Internal version of propagate, requires in.NumCols() equal to scales_.Dim()
   // (if batch-dim was set, this may require the caller to reshape the input and

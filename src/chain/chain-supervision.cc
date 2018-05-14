@@ -610,9 +610,11 @@ void Supervision::Read(std::istream &is, bool binary) {
   ReadBasicType(is, binary, &frames_per_sequence);
   ExpectToken(is, binary, "<LabelDim>");
   ReadBasicType(is, binary, &label_dim);
-  bool e2e;
-  ExpectToken(is, binary, "<End2End>");
-  ReadBasicType(is, binary, &e2e);
+  bool e2e = false;
+  std::string token;
+  ReadToken(is, binary, &token);
+  if (token == "<End2End>")
+    ReadBasicType(is, binary, &e2e);
   if (!e2e) {
     if (!binary) {
       ReadFstKaldi(is, binary, &fst);

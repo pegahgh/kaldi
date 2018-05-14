@@ -339,7 +339,7 @@ void RegularizeFactors(std::string regularize_factor_str,
   }
 }
 
-double NnetComputeProb::GetTotalObjective(double *tot_weight,
+double NnetComputeProb::GetTotalObjective(double *total_weight,
                                           std::string regularize_factors) const {
   std::map<std::string, BaseFloat> output_to_reg;
   RegularizeFactors(regularize_factors, &output_to_reg);
@@ -351,7 +351,7 @@ double NnetComputeProb::GetTotalObjective(double *tot_weight,
     if (output_to_reg.find(iter->first) != output_to_reg.end())
         regularize = output_to_reg[iter->first];
     tot_objectives += regularize * iter->second.tot_objective;
-    (*tot_weight) += iter->second.tot_weight;
+    tot_weight += iter->second.tot_weight;
   }
 
   if (total_weight) *total_weight = tot_weight;

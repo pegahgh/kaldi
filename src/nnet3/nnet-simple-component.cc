@@ -2346,14 +2346,19 @@ void ScaleAndOffsetComponent::InitFromConfig(ConfigLine *cfl) {
   }
   BaseFloat scale_value = 1.0,
     offset_value = 0.0;
-  cfl->GetValue("scale", &scale_value);
-  cfl->GetValue("offset", &offset_value);
+  std::string matrix_filename;
+  if (cfl->GetValue("matrix", &matrix_filename)) {
+    Init(matrix_filename, block_dim);
+  } else{
+    cfl->GetValue("scale", &scale_value);
+    cfl->GetValue("offset", &offset_value);
 
-  cfl->GetValue("rank", &rank);
-  scales_.Resize(block_dim);
-  scales_.Set(scale_value);
-  offsets_.Resize(block_dim);
-  offsets_.Set(offset_value);
+    cfl->GetValue("rank", &rank);
+    scales_.Resize(block_dim);
+    scales_.Set(scale_value);
+    offsets_.Resize(block_dim);
+    offsets_.Set(offset_value);
+  }
   // offsets are all zero when initialized.
   if (cfl->HasUnusedValues())
     KALDI_ERR << "Could not process these elements in initializer: "
@@ -2366,6 +2371,15 @@ void ScaleAndOffsetComponent::InitFromConfig(ConfigLine *cfl) {
   scale_preconditioner_.SetUpdatePeriod(4);
 }
 
+void ScaleAndOffsetComponent::Init(std::string matrix_filename, int32 block_dim) {
+  CuMatrix<BaseFloat> mat;
+  ReadKaldiObject(matrix_filename, &mat); // will abort on failure.
+  KALDI_ASSERT(mat.NumRows() == 2);
+  scales_.Resize(block_dim);
+  offsets_.Resize(block_dim);
+  scales_.CopyFromVec(mat.Row(0));
+  offsets_.CopyFromVec(mat.Row(1));
+}
 void ScaleAndOffsetComponent::Read(std::istream &is, bool binary) {
   ReadUpdatableCommon(is, binary);  // Read opening tag and learning rate
   ExpectToken(is, binary, "<Dim>");
