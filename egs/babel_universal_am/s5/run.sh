@@ -460,7 +460,7 @@ for l in ${decode_langs}; do
     ###########################################################################
     # Train the LM For the Decoding Language
     ###########################################################################
-    
+
     ./local/train_lms_srilm.sh --oov-symbol "<unk>" \
                                --train-text data/train/text \
                                --words-file ${langdir}_universal/words.txt \
@@ -468,8 +468,8 @@ for l in ${decode_langs}; do
 
     ./local/arpa2G.sh data/srilm/lm.gz ${langdir}_universal ${langdir}_universal
   fi
- 
-  # Make Decoding Graph 
+
+  # Make Decoding Graph
   if [ $stage -le 8 ]; then
     ./utils/mkgraph.sh --self-loop-scale 1.0 ${langdir}_universal \
       ${cwd}/exp/chain_cleaned/tdnn_sp_bi \
@@ -491,13 +491,13 @@ for l in ${decode_langs}; do
 
     local/prepare_acoustic_training_data.pl --fragmentMarkers \-\*\~  \
       dev10h_data_dir data/dev10h.pem > data/dev10h.pem/skipped_utts.log || exit 1
-    
+
     local/prepare_stm.pl --fragmentMarkers \-\*\~ data/dev10h.pem
 
     # Make plp + pitch features
     steps/make_plp_pitch.sh --nj 32 --cmd "$train_cmd" data/dev10h.pem exp/make_mfcc/dev10h.pem mfcc
     steps/compute_cmvn_stats.sh data/dev10h.pem exp/make_mfcc/dev10h.pem mfcc
-  
+
     # Make hires mfcc features (for ivector extraction)
     utils/copy_data_dir.sh data/dev10h.pem data/dev10h.pem_hires
     steps/make_mfcc.sh --nj 32 --mfcc-config conf/mfcc_hires.conf \
@@ -511,12 +511,12 @@ for l in ${decode_langs}; do
       --cmd "$train_cmd" data/dev10h.pem_pitch_hires exp/make_hires/dev10h.pem_pitch mfcc_pitch_hires;
     steps/compute_cmvn_stats.sh data/dev10h.pem_pitch_hires exp/make_hires/dev10h.pem_pitch mfcc_pitch_hires;
     utils/fix_data_dir.sh data/dev10h.pem_pitch_hires;
-  
+
     steps/online/nnet2/extract_ivectors_online.sh --cmd "$train_cmd" --nj 32 \
       data/dev10h.pem_hires ${cwd}/exp/nnet3_cleaned/extractor/ ${cwd}/exp/nnet3_cleaned/ivectors_${l}_dev10h.pem/ || exit 1;
-  
+
   fi
-  
+
   # Decode
   if [ $stage -le 10 ]; then
     # Assign 100 / num_decode_langs nj per lang

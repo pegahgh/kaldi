@@ -16,9 +16,12 @@ gmm=tri5_cleaned          # This specifies a GMM-dir from the features
                           # of the type you're training the system on;
                           # it should contain alignments for 'train_set'.
 langdir=data/langp/tri5_ali
-
+min_seg_len=1.55  # min length in seconds... we do this because chain training
+                  # will discard segments shorter than 1.5 seconds.   Must remain in sync
+                  # with the same option given to prepare_lores_feats_and_alignments.sh
 num_threads_ubm=12
 nnet3_affix=_cleaned
+upsample_data=false # If true, high resolution data is generated for upsampled data.
 
 . ./cmd.sh
 . ./path.sh
@@ -170,5 +173,35 @@ if [ $stage -le 6 ]; then
 
 fi
 
+if [ $stage -le 7 ] && $upsample_data; then
+  utils/copy_data_dir.sh data/${train_set}_sp_hires data/${train_set}_sp_hires_16kHz
+  cp data/${train_set}_sp_hires_16kHz/wav.scp{,.bkup}
+  cat data/${train_set}_sp_hires_16kHz/wav.scp.bkup | awk '{print $0" sox -R -t wav - -t wav - rate 16000 dither |"}' > data/${train_set}_sp_hires_16kHz/wav.scp
+  mfccdir_16kHz=data/${train_set}_sp_hires_16kHz/data
+  if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d ${mfccdir_16kHz}/storage ]; then
+    utils/create_split_dir.pl \
+      /export/b1{1,2,3,4,5}/$USER/kaldi-data/mfcc/babel-$(date +'%m_%d_%H_%M')/s5d/$RANDOM/${mfccdir_16kHz}/storage $mfccdir_16kHz/storage
+  fi
+
+  for datadir in ${train_set}_sp; do
+    steps/make_mfcc_pitch_online.sh --nj $nj --mfcc-config conf/mfcc_hires_16kHz.conf \
+      --online-pitch-config conf/online_pitch_16kHz.conf \
+      --cmd "$train_cmd" \
+      data/${datadir}_hires_16kHz exp/make_hires_16kHz/${datadir} ${mfccdir_16kHz}
+
+    steps/compute_cmvn_stats.sh data/${datadir}_hires_16kHz
+    utils/fix_data_dir.sh data/${datadir}_hires_16kHz
+  done
+fi
+
+if [ $stage -le 8 ]; then
+  echo "$0: combining short segments of speed-perturbed high-resolution MFCC training data"
+  # we have to combine short segments or we won't be able to train chain models
+  # on those segments.
+  utils/data/combine_short_segments.sh \
+    data/${datadir}_hires_16kHz $min_seg_len data/${train_set}_sp_hires_16kHz_comb
+  cp data/${train_set}_sp_hires_16kHz/cmvn.scp data/${train_set}_sp_hires_16kHz_comb/
+  utils/fix_data_dir.sh data/${train_set}_sp_hires_16kHz_comb
+fi
 echo "iVector preparation done."
 exit 0

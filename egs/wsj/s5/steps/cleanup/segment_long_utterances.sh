@@ -4,7 +4,7 @@
 #           2016  Vimal Manohar
 # Apache 2.0
 
-. ./path.sh
+. path.sh
 
 set -e 
 set -o pipefail
@@ -17,10 +17,15 @@ seconds_per_spk_max=30
 
 # Decode options
 graph_opts=
+graph_scale_opts=
 beam=15.0
 lattice_beam=1.0
 nj=4
 lmwt=10
+
+use_nnet3_src=false  ## Set to true if the src is an nnet3 model
+extractor=    ## i-Vector extractor
+decode_opts=   ## Options for nnet3 decoding
 
 # TF-IDF similarity search options
 max_words=1000
@@ -79,19 +84,19 @@ data=$3
 
 extra_files=
 utt2text=
-text=$data/text
 if [ $# -eq 7 ]; then
   text=$4
   utt2text=$5
   out_data=$6
   dir=$7
-  extra_files="$utt2text"
+  extra_files="$text $utt2text"
 else 
   out_data=$4
   dir=$5
+  text=$data/text
 fi
 
-for f in $data/feats.scp $text $extra_files $srcdir/tree \
+for f in $data/feats.scp $extra_files $srcdir/tree \
   $srcdir/final.mdl $srcdir/cmvn_opts; do
   if [ ! -f $f ]; then
     echo "$0: Could not find file $f"
@@ -157,18 +162,22 @@ if [ $stage -le 3 ]; then
   cp $srcdir/phones.txt $dir 2>/dev/null || true
 
   mkdir -p $graph_dir
-  
-  # Make graphs w.r.t. to the original text (usually recording-level) 
-  steps/cleanup/make_biased_lm_graphs.sh $graph_opts \
-    --nj $nj --cmd "$cmd" $text \
-    $lang $dir $dir/graphs
   if [ -z "$utt2text" ]; then
+    steps/cleanup/make_biased_lm_graphs.sh $graph_opts \
+      ${graph_scale_opts:+--scale-opts "$graph_scale_opts"}\
+      --nj $nj --cmd "$cmd" $data/text \
+       $lang $dir $dir/graphs
     # and then copy it to the sub-segments. 
     cat $dir/uniform_sub_segments | awk '{print $1" "$2}' | \
       utils/apply_map.pl -f 2 $dir/graphs/HCLG.fsts.scp | \
       sort -k1,1 > \
       $graph_dir/HCLG.fsts.scp
   else
+    # Make graphs w.r.t. to the original text (usually recording-level) 
+    steps/cleanup/make_biased_lm_graphs.sh $graph_opts \
+      ${graph_scale_opts:+--scale-opts "$graph_scale_opts"}\
+      --nj $nj --cmd "$cmd" $text \
+       $lang $dir $dir/graphs
     # and then copy it to the sub-segments. 
     cat $dir/uniform_sub_segments | awk '{print $1" "$2}' | \
       utils/apply_map.pl -f 2 $utt2text | \
@@ -185,23 +194,48 @@ fi
 decode_dir=$dir/lats
 mkdir -p $decode_dir
 
-if [ $stage -le 4 ]; then
-  echo "$0: Decoding with biased language models..."
   
-  if [ -f $srcdir/trans.1 ]; then
-    steps/cleanup/decode_fmllr_segmentation.sh \
+if $use_nnet3_src; then
+  if [ ! -z "$extractor" ]; then
+    ivector_opt="--online-ivector-dir $dir/ivectors_`basename $data_uniform_seg`" 
+
+    if [ $stage -le 4 ]; then
+      steps/compute_vad_decision.sh $data_uniform_seg $data_uniform_seg/log $data_uniform_seg/data
+
+      steps/online/nnet2/extract_ivectors_online.sh \
+        --nj $nj --cmd "$cmd --mem 4G" --use-vad true \
+        $data_uniform_seg $extractor \
+        $dir/ivectors_`basename $data_uniform_seg`
+    fi
+  fi
+
+  if [ $stage -le 5 ]; then
+    echo "$0: Decoding with biased language models..."
+
+    steps/cleanup/decode_segmentation_nnet3.sh \
       --beam $beam --lattice-beam $lattice_beam --nj $nj --cmd "$cmd --mem 4G" \
-      --skip-scoring true --allow-partial false \
+      --skip-scoring true --allow-partial false $ivector_opt \
+      $decode_opts \
       $graph_dir $data_uniform_seg $decode_dir
-  else 
-    steps/cleanup/decode_segmentation.sh \
-      --beam $beam --lattice-beam $lattice_beam --nj $nj --cmd "$cmd --mem 4G" \
-      --skip-scoring true --allow-partial false \
-      $graph_dir $data_uniform_seg $decode_dir
+  fi
+
+else
+  if [ $stage -le 5 ]; then
+    if [ -f $srcdir/trans.1 ]; then
+      steps/cleanup/decode_fmllr_segmentation.sh \
+        --beam $beam --lattice-beam $lattice_beam --nj $nj --cmd "$cmd --mem 4G" \
+        --skip-scoring true --allow-partial false \
+        $graph_dir $data_uniform_seg $decode_dir
+    else 
+      steps/cleanup/decode_segmentation.sh \
+        --beam $beam --lattice-beam $lattice_beam --nj $nj --cmd "$cmd --mem 4G" \
+        --skip-scoring true --allow-partial false \
+        $graph_dir $data_uniform_seg $decode_dir
+    fi
   fi
 fi
 
-if [ $stage -le 5 ]; then
+if [ $stage -le 6 ]; then
   steps/cleanup/internal/get_ctm.sh \
     --lmwt $lmwt --cmd "$cmd --mem 4G" \
     --print-silence true \
@@ -214,7 +248,7 @@ fi
 # Since the Smith-Waterman alignment is linear in the length of the 
 # text, we want to keep it reasonably small (a few thousand words). 
 
-if [ $stage -le 6 ]; then
+if [ $stage -le 7 ]; then
   # Split the reference text into documents.
   mkdir -p $dir/docs
     
@@ -227,7 +261,7 @@ if [ $stage -le 6 ]; then
   utils/utt2spk_to_spk2utt.pl $dir/docs/doc2text > $dir/docs/text2doc
 fi
 
-if [ $stage -le 7 ]; then
+if [ $stage -le 8 ]; then
   # Get TF-IDF for the reference documents.
   echo $nj > $dir/docs/num_jobs
   
@@ -280,7 +314,6 @@ if [ $stage -le 7 ]; then
       --idf-weighting-scheme="log" \
       --input-idf-stats=$dir/docs/idf_stats.txt \
       $sdir/docs.JOB.txt $sdir/src_tf_idf.JOB.txt 
-
   sdir=$dir/docs/split$nj
   # Make $sdir an absolute pathname.
   sdir=`perl -e '($dir,$pwd)= @ARGV; if($dir!~m:^/:) { $dir = "$pwd/$dir"; } print $dir; ' $sdir ${PWD}`
@@ -300,7 +333,7 @@ if [ $stage -le 7 ]; then
   } }' > $dir/docs/source2tf_idf.scp
 fi
 
-if [ $stage -le 8 ]; then
+if [ $stage -le 9 ]; then
   echo "$0: using default values of non-scored words..."
 
   # At the level of this script we just hard-code it that non-scored words are
@@ -313,7 +346,7 @@ if [ $stage -le 8 ]; then
   steps/cleanup/internal/get_non_scored_words.py $lang > $dir/non_scored_words.txt
 fi
 
-if [ $stage -le 9 ]; then
+if [ $stage -le 10 ]; then
   sdir=$dir/query_docs/split$nj
   mkdir -p $sdir
 
@@ -380,12 +413,13 @@ if [ $stage -le 9 ]; then
   
 fi
 
-if [ $stage -le 10 ]; then
-  steps/cleanup/internal/resolve_ctm_edits_overlaps.py \
+if [ $stage -le 11 ]; then
+  $cmd $dir/log/resolve_ctm_edits.log \
+    steps/cleanup/internal/resolve_ctm_edits_overlaps.py \
     ${data_uniform_seg}/segments $dir/lats/score_$lmwt/ctm_edits $dir/ctm_edits
 fi
 
-if [ $stage -le 11 ]; then
+if [ $stage -le 12 ]; then
   echo "$0: modifying ctm-edits file to allow repetitions [for dysfluencies] and "
   echo "   ... to fix reference mismatches involving non-scored words. "
 
@@ -397,7 +431,7 @@ if [ $stage -le 11 ]; then
   echo " a list of commonly-repeated words."
 fi
 
-if [ $stage -le 12 ]; then
+if [ $stage -le 13 ]; then
   echo "$0: applying 'taint' markers to ctm-edits file to mark silences and"
   echo "  ... non-scored words that are next to errors."
   $cmd $dir/log/taint_ctm_edits.log \
@@ -406,7 +440,7 @@ if [ $stage -le 12 ]; then
   echo "... Stats, including global cor/ins/del/sub stats, are in $dir/log/taint_ctm_edits.log."
 fi
 
-if [ $stage -le 13 ]; then
+if [ $stage -le 14 ]; then
   echo "$0: creating segmentation from ctm-edits file."
 
   segmentation_opts=(
@@ -439,7 +473,7 @@ if [ $stage -le 13 ]; then
 fi
 
 mkdir -p $out_data
-if [ $stage -le 14 ]; then
+if [ $stage -le 15 ]; then
   utils/data/subsegment_data_dir.sh $data_uniform_seg \
     $dir/segments $dir/text $out_data
 fi

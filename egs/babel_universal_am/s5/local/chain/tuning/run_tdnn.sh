@@ -21,7 +21,8 @@ frames_per_eg=150
 remove_egs=false
 common_egs_dir=
 xent_regularize=0.1
-
+upsample_data=true # If true, the data is upsampled to 16kHz and high resolution data
+                   # is generated for upsampled data.
 
 # First the options that are passed through to run_ivector_common.sh
 # (some of which are also used in this script directly).
@@ -62,8 +63,16 @@ fi
                                   --gmm $gmm \
                                   --num-threads-ubm $num_threads_ubm \
                                   --langdir $langdir \
-                                  --nnet3-affix "$nnet3_affix"
+                                  --nnet3-affix "$nnet3_affix" \
+                                  --upsample-data $upsample_data
 
+if [ $upsample_data ]; then
+  utils/copy_data_dir.sh data/dev10h.pem_hires data/dev10h.pem_hires_16kHz
+  cp data/dev10h.pem_hires_16kHz/wav.scp{,.bkup}
+  cat data/dev10h.pem_hires_16kHz/wav.scp.bkup | awk '{print $0" sox -R -t wav - -t wav - rate 16000 dither |"}' > data/dev10h.pem_hires_16kHz/wav.scp
+  steps/make_mfcc_pitch.sh --nj 32 --mfcc-config conf/mfcc_hires.conf \
+    --cmd "$train_cmd" data/dev10h.pem_pitch_hires_16kHz exp/make_hires/dev10h.pem_pitch_16kHz mfcc_pitch_hires_16kHz
+fi
 
 gmm_dir=exp/$gmm
 ali_dir=exp/${gmm}_ali_${train_set}_sp
@@ -80,6 +89,7 @@ for f in $gmm_dir/final.mdl $train_data_dir/feats.scp \
   [ ! -f $f ] && echo "$0: expected file $f to exist" && exit 1
 done
 
+if false; then #100
 if [ $stage -le 14 ]; then
   echo "$0: creating lang directory with one state per phone."
   # Create a version of the lang/ directory that has one state per phone in the
@@ -124,6 +134,7 @@ if [ $stage -le 16 ]; then
       --leftmost-questions-truncate -1 \
       --cmd "$train_cmd" 4000 ${lores_train_data_dir} data/lang_chain $ali_dir $tree_dir
 fi
+fi #100
 
 if [ $stage -le 17 ]; then
   mkdir -p $dir
