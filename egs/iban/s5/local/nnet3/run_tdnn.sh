@@ -54,7 +54,6 @@ if [ $stage -le 10 ]; then
     --trainer.optimization.num-jobs-initial 2 \
     --trainer.optimization.num-jobs-final 4 \
     --trainer.num-epochs 4 \
-    --trainer.add-layers-period 1 \
     --feat.online-ivector-dir exp/nnet3/ivectors_train\
     --feat.cmvn-opts "--norm-means=false --norm-vars=false" \
     --trainer.num-epochs 2 \

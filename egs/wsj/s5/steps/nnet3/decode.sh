@@ -29,6 +29,7 @@ extra_left_context_initial=-1
 extra_right_context_final=-1
 online_ivector_dir=
 minimize=false
+ivector_period=
 # End configuration section.
 
 echo "$0 $@"  # Print the command line for logging
@@ -87,7 +88,9 @@ echo "$0: feature type is raw"
 feats="ark,s,cs:apply-cmvn $cmvn_opts --utt2spk=ark:$sdata/JOB/utt2spk scp:$sdata/JOB/cmvn.scp scp:$sdata/JOB/feats.scp ark:- |"
 
 if [ ! -z "$online_ivector_dir" ]; then
-  ivector_period=$(cat $online_ivector_dir/ivector_period) || exit 1;
+  if [ -z $ivector_period ]; then
+    ivector_period=$(cat $online_ivector_dir/ivector_period) || exit 1;
+  fi
   ivector_opts="--online-ivectors=scp:$online_ivector_dir/ivector_online.scp --online-ivector-period=$ivector_period"
 fi
 

@@ -7,6 +7,7 @@ min_lmwt=5
 max_lmwt=17
 iter=final
 word_ins_penalty=0.0,0.5,1.0
+frame_shift=0.01
 #end configuration section.
 
 [ -f ./path.sh ] && . ./path.sh

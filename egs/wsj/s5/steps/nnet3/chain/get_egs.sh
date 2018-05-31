@@ -62,6 +62,7 @@ max_shuffle_jobs_run=50  # the shuffle jobs now include the nnet3-chain-normaliz
                          # without overloading the disks.
 srand=0     # rand seed for nnet3-chain-get-egs, nnet3-chain-copy-egs and nnet3-chain-shuffle-egs
 online_ivector_dir=  # can be used if we are including speaker information as iVectors.
+online_ivector_period=
 cmvn_opts=  # can be used for specifying CMVN options, if feature type is not lda (if lda,
             # it doesn't make sense to use different options than were used as input to the
             # LDA transform).  This is used to turn off CMVN in the online-nnet experiments.
@@ -151,7 +152,7 @@ mkdir -p $dir/log $dir/info
 # Get list of validation utterances.
 
 frame_shift=$(utils/data/get_frame_shift.sh $data) || exit 1
-utils/data/get_utt2dur.sh $data
+utils/data/get_utt2dur.sh --frame-shift $frame_shift $data
 
 cat $data/utt2dur | \
   awk -v min_len=$frames_per_eg -v fs=$frame_shift '{if ($2 * 1/fs >= min_len) print $1}' | \
@@ -200,6 +201,11 @@ if [ ! -z "$online_ivector_dir" ]; then
   echo $ivector_dim > $dir/info/ivector_dim
   steps/nnet2/get_ivector_id.sh $online_ivector_dir > $dir/info/final.ie.id || exit 1
   ivector_period=$(cat $online_ivector_dir/ivector_period) || exit 1;
+  if [ -z $online_ivector_period ]; then
+    ivector_period=$(cat $online_ivector_dir/ivector_period) || exit 1;
+  else
+    ivector_period=$online_ivector_period
+  fi
   ivector_opts="--online-ivectors=scp:$online_ivector_dir/ivector_online.scp --online-ivector-period=$ivector_period"
 else
   ivector_opts=""

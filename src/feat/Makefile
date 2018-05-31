@@ -6,10 +6,11 @@ include ../kaldi.mk
 
 TESTFILES = feature-mfcc-test feature-plp-test feature-fbank-test \
          feature-functions-test pitch-functions-test feature-sdc-test \
-         resample-test online-feature-test signal-test wave-reader-test
+         resample-test online-feature-test signal-test wave-reader-test \
+         feature-dnnc-test
 
-OBJFILES = feature-functions.o feature-mfcc.o feature-plp.o feature-fbank.o \
-           feature-spectrogram.o mel-computations.o wave-reader.o \
+OBJFILES = feature-functions.o feature-dnnc.o feature-mfcc.o feature-plp.o feature-fbank.o \
+           feature-spectrogram.o dnnc-computations.o mel-computations.o wave-reader.o \
            pitch-functions.o resample.o online-feature.o signal.o \
            feature-window.o
 

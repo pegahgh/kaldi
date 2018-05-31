@@ -6,7 +6,7 @@ include ../kaldi.mk
 BINFILES = add-deltas add-deltas-sdc append-post-to-feats \
            append-vector-to-feats apply-cmvn apply-cmvn-sliding compare-feats \
            compose-transforms compute-and-process-kaldi-pitch-feats \
-           compute-cmvn-stats compute-cmvn-stats-two-channel \
+           compute-cmvn-stats compute-cmvn-stats-two-channel compute-dnnc-feats \
            compute-fbank-feats compute-kaldi-pitch-feats compute-mfcc-feats \
            compute-plp-feats compute-spectrogram-feats concat-feats copy-feats \
            copy-feats-to-htk copy-feats-to-sphinx extend-transform-dim \
