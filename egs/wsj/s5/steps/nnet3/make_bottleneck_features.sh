@@ -11,6 +11,7 @@ cmd=queue.pl
 use_gpu=false
 ivector_dir=
 compress=true
+bnf_nnet=
 # End configuration options.
 
 echo "$0 $@"  # Print the command line for logging
@@ -47,7 +48,9 @@ fi
 
 # Assume that final.nnet is in nnetdir
 cmvn_opts=`cat $nnetdir/cmvn_opts`;
-bnf_nnet=$nnetdir/final.raw
+if [ -z bnf_nnet ]; then
+  bnf_nnet=$nnetdir/final.raw
+fi
 if [ ! -f $bnf_nnet ] ; then
   echo "$0: No such file $bnf_nnet";
   exit 1;
