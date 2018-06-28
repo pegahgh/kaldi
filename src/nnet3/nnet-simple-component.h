@@ -380,6 +380,7 @@ class FixedAffineComponent;
 class FixedScaleComponent;
 class PerElementScaleComponent;
 class PerElementOffsetComponent;
+class PowerComponent;
 
 // Affine means a linear function plus an offset.
 // Note: although this class can be instantiated, it also
@@ -1844,6 +1845,8 @@ class ScaleAndOffsetComponent: public UpdatableComponent {
 
   // copy constructor
   explicit ScaleAndOffsetComponent(const ScaleAndOffsetComponent &other);
+ protected:
+  void Init(std::string matrix_filename, int32 block_dim);
  private:
   // Internal version of propagate, requires in.NumCols() equal to scales_.Dim()
   // (if batch-dim was set, this may require the caller to reshape the input and
@@ -2291,7 +2294,71 @@ class LstmNonlinearityComponent: public UpdatableComponent {
 };
 
 
+// The PowerComponent is ((x_i+delta_i)^2)^p_i - (delta_i^2)^p_i, and the delta and P are
+// per-dimension trainable parameters.
+// The power and offset are shared acoss blocks with block_dim size.
+class PowerComponent: public UpdatableComponent {
+ public:
+  virtual int32 InputDim() const { return dim_; }
+  virtual int32 OutputDim() const { return dim_; }
 
+  virtual std::string Info() const;
+  virtual void InitFromConfig(ConfigLine *cfl);
+
+  virtual std::string Type() const { return "PowerComponent"; }
+  virtual int32 Properties() const {
+    return kSimpleComponent|kUpdatableComponent|
+      kBackpropNeedsInput;
+  }
+
+  virtual void* Propagate(const ComponentPrecomputedIndexes *indexes,
+                         const CuMatrixBase<BaseFloat> &in,
+                         CuMatrixBase<BaseFloat> *out) const;
+
+  virtual void Backprop(const std::string &debug_info,
+                        const ComponentPrecomputedIndexes *indexes,
+                        const CuMatrixBase<BaseFloat> &in_value,
+                        const CuMatrixBase<BaseFloat> &, // out_value
+                        const CuMatrixBase<BaseFloat> &out_deriv,
+                        void *memo,
+                        Component *to_update,
+                        CuMatrixBase<BaseFloat> *in_deriv) const;
+
+  virtual void Read(std::istream &is, bool binary);
+  virtual void Write(std::ostream &os, bool binary) const;
+
+  virtual Component* Copy() const;
+
+  // Some functions from base-class UpdatableComponent.
+  virtual void Scale(BaseFloat scale);
+  virtual void Add(BaseFloat alpha, const Component &other);
+  virtual void PerturbParams(BaseFloat stddev);
+  virtual void ApplyMinMaxToWeights() {}
+  virtual BaseFloat DotProduct(const UpdatableComponent &other) const;
+  virtual int32 NumParameters() const;
+  virtual void Vectorize(VectorBase<BaseFloat> *params) const;
+  virtual void UnVectorize(const VectorBase<BaseFloat> &params);
+
+  // PowerComponent-specific functions.
+  void Init(std::string power_filename, std::string offset_filename);
+  void Init(int32 dim, BaseFloat power_stddev, BaseFloat power_mean,
+            BaseFloat offset_stddev, BaseFloat offset_mean);
+  explicit PowerComponent();
+  explicit PowerComponent(const PowerComponent &other);
+ protected:
+  int32 dim_;
+  int32 block_dim_;
+  CuVector<BaseFloat> power_;
+  CuVector<BaseFloat> offset_;
+
+  void Update(const std::string &debug_info,
+              const CuMatrixBase<BaseFloat> &in_value,
+              const CuMatrixBase<BaseFloat> &out_deriv,
+              const CuVectorBase<BaseFloat> &power,
+              const CuVectorBase<BaseFloat> &offset);
+
+  const PowerComponent &operator = (const PowerComponent &other);
+};
 
 /*
  * WARNING, this component is deprecated as it's not compatible with

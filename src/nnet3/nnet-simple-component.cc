@@ -2243,10 +2243,26 @@ void ScaleAndOffsetComponent::InitFromConfig(ConfigLine *cfl) {
   if (block_dim <= 0 || dim_ % block_dim != 0) {
     KALDI_ERR << "Invalid block-dim: " << cfl->WholeLine();
   }
+  BaseFloat scale_value = 1.0,
+    offset_value = 0.0;
+  std::string matrix_filename;
+  if (cfl->GetValue("matrix", &matrix_filename)) {
+    Init(matrix_filename, block_dim);
+  } else{
+    cfl->GetValue("scale", &scale_value);
+    cfl->GetValue("offset", &offset_value);
+
+    cfl->GetValue("rank", &rank);
+    scales_.Resize(block_dim);
+    scales_.Set(scale_value);
+    offsets_.Resize(block_dim);
+    offsets_.Set(offset_value);
+  }
+
   cfl->GetValue("rank", &rank);
-  scales_.Resize(block_dim);
-  scales_.Set(1.0);
-  offsets_.Resize(block_dim);
+  //scales_.Resize(block_dim);
+  //scales_.Set(1.0);
+  //offsets_.Resize(block_dim);
   // offsets are all zero when initialized.
   if (cfl->HasUnusedValues())
     KALDI_ERR << "Could not process these elements in initializer: "
@@ -2257,6 +2273,16 @@ void ScaleAndOffsetComponent::InitFromConfig(ConfigLine *cfl) {
   // want to.
   offset_preconditioner_.SetUpdatePeriod(4);
   scale_preconditioner_.SetUpdatePeriod(4);
+}
+
+void ScaleAndOffsetComponent::Init(std::string matrix_filename, int32 block_dim) {
+  CuMatrix<BaseFloat> mat;
+  ReadKaldiObject(matrix_filename, &mat); // will abort on failure.
+  KALDI_ASSERT(mat.NumRows() == 2);
+  scales_.Resize(block_dim);
+  offsets_.Resize(block_dim);
+  scales_.CopyFromVec(mat.Row(0));
+  offsets_.CopyFromVec(mat.Row(1));
 }
 
 void ScaleAndOffsetComponent::Read(std::istream &is, bool binary) {
@@ -5787,6 +5813,324 @@ void LstmNonlinearityComponent::InitFromConfig(ConfigLine *cfl) {
               << Type() << ": \"" << cfl->WholeLine() << "\"";
   }
 }
+
+void PowerComponent::Scale(BaseFloat scale) {
+  if (scale == 0.0) {
+    offset_.SetZero();
+    power_.SetZero();
+  } else {
+    offset_.Scale(scale);
+    power_.Scale(scale);
+  }
+}
+
+void PowerComponent::Add(BaseFloat alpha,
+                         const Component &other_in) {
+  const PowerComponent *other =
+    dynamic_cast<const PowerComponent*>(&other_in);
+  KALDI_ASSERT(other != NULL);
+  offset_.AddVec(alpha, other->offset_);
+  power_.AddVec(alpha, other->power_);
+}
+
+
+void PowerComponent::PerturbParams(BaseFloat stddev) {
+  int32 num_blocks = dim_ / block_dim_;
+  CuVector<BaseFloat> offset_rands(num_blocks, kUndefined),
+    power_rands(num_blocks, kUndefined);
+  offset_rands.SetRandn();
+  power_rands.SetRandn();
+  offset_.AddVec(stddev, offset_rands);
+  power_.AddVec(stddev, power_rands);
+}
+
+BaseFloat PowerComponent::DotProduct(
+    const UpdatableComponent &other_in) const {
+  const PowerComponent *other =
+    dynamic_cast<const PowerComponent*>(&other_in);
+  return (VecVec(offset_, other->offset_) + VecVec(power_, other->power_));
+}
+
+int32 PowerComponent::NumParameters() const {
+  return (2 * (dim_ / block_dim_));
+}
+
+void PowerComponent::Vectorize(VectorBase<BaseFloat> *params) const {
+  int32 num_blocks = dim_ / block_dim_;
+  KALDI_ASSERT(params->Dim() == this->NumParameters());
+  params->Range(0, num_blocks).CopyFromVec(offset_);
+  params->Range(num_blocks, num_blocks).CopyFromVec(power_);
+}
+
+void PowerComponent::UnVectorize(const VectorBase<BaseFloat> &params) {
+  int32 num_blocks = dim_ / block_dim_;
+  offset_.CopyFromVec(params.Range(0, num_blocks));
+  power_.CopyFromVec(params.Range(num_blocks, num_blocks));
+}
+
+std::string PowerComponent::Info() const {
+  std::stringstream stream;
+  int32 num_blocks = dim_ / block_dim_;
+  BaseFloat power_mean = power_.Sum() / num_blocks,
+    offset_mean = offset_.Sum() / num_blocks,
+    power_stddev = 0.0, offset_stddev = 0.0;
+  for (int32 i = 0; i < num_blocks; i++) {
+    power_stddev += std::pow((power_(i) - power_mean), 2);
+    offset_stddev += std::pow((offset_(i) - offset_mean), 2);
+  }
+  power_stddev = std::pow(power_stddev / num_blocks, 0.5);
+  offset_stddev = std::pow(offset_stddev / num_blocks, 0.5);
+
+  stream << UpdatableComponent::Info()
+         << ", power-average=" << power_.Sum() / num_blocks
+         << ", power-stddev=" << power_stddev
+         << ", offset-average=" << offset_.Sum() / num_blocks
+         << ", offset-stddev=" << offset_stddev
+         << " with block-dim=" << block_dim_;
+  if (GetVerboseLevel() > 0)
+    stream << " offset=" << offset_
+           << " power="  << power_;
+  return stream.str();
+}
+
+void PowerComponent::InitFromConfig(ConfigLine *cfl) {
+  int32 dim = -1;
+  bool ok = true;
+  std::string power_filename, offset_filename;
+  InitLearningRatesFromConfig(cfl);
+  ok = ok && (cfl->GetValue("dim", &dim));
+  cfl->GetValue("block-dim", &block_dim_);
+  if (cfl->GetValue("power-matrix", &power_filename)) {
+    ok = ok && (cfl->GetValue("offset-matrix", &offset_filename));
+    Init(power_filename, offset_filename);
+  } else {
+    BaseFloat power_stddev = 0.0, power_mean = 0.05,
+      offset_stddev = 0.0, offset_mean = 0.01;
+    cfl->GetValue("power-stddev", &power_stddev);
+    cfl->GetValue("power-mean", &power_mean);
+
+    cfl->GetValue("offset-stddev", &offset_stddev);
+    cfl->GetValue("offset-mean", &offset_mean);
+    Init(dim, power_stddev, power_mean, offset_stddev, offset_mean);
+  }
+  if (cfl->HasUnusedValues())
+    KALDI_ERR << "Could not process these elements in initializer: "
+              << cfl->UnusedValues();
+  if (!ok)
+    KALDI_ERR << "Bad initializer " << cfl->WholeLine();
+}
+
+void PowerComponent::Init(std::string power_filename,
+                          std::string offset_filename) {
+  CuVector<BaseFloat> power, offset;
+  ReadKaldiObject(power_filename, &power);
+  ReadKaldiObject(offset_filename, &offset);
+  int32 num_blocks = power.Dim();
+  dim_ = num_blocks * block_dim_;
+  KALDI_ASSERT(power.Dim() == offset.Dim());
+  power_.Resize(num_blocks);
+  offset_.Resize(num_blocks);
+  power_.CopyFromVec(power);
+  offset_.CopyFromVec(offset);
+}
+
+void PowerComponent::Init(int32 dim, BaseFloat power_stddev, BaseFloat power_mean,
+                          BaseFloat offset_stddev, BaseFloat offset_mean) {
+  dim_ = dim;
+  KALDI_ASSERT(dim_ % block_dim_ == 0);
+  int32 block_dim = dim_ / block_dim_;
+  offset_.Resize(block_dim);
+  power_.Resize(block_dim);
+  offset_.SetRandn();
+  offset_.Scale(offset_stddev);
+  offset_.Add(offset_mean);
+  power_.SetRandn();
+  power_.Scale(power_stddev);
+  power_.Add(power_mean);
+}
+
+void* PowerComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
+                                const CuMatrixBase<BaseFloat> &in,
+                                CuMatrixBase<BaseFloat> *out) const{
+  KALDI_ASSERT(dim_ % block_dim_ == 0);
+  int32 num_blocks = dim_ / block_dim_;
+  CuMatrix<BaseFloat> powered_in(in);
+  CuVector<BaseFloat> powered_offset(dim_),
+    unfolded_offset(dim_);
+  for (int32 i = 0; i < num_blocks; i++)
+    unfolded_offset.Range(i * block_dim_, block_dim_).Set(offset_(i));
+
+  powered_in.AddVecToRows(1.0, unfolded_offset);
+  powered_in.ApplyPow(2.0); // first compute (x+offset)^2 and apply floor
+                            // to deal with almost-zeros values.
+  powered_in.ApplyFloor(1.0e-5);
+  for (int32 i = 0; i < num_blocks; i++) {
+    int32 start_ind = i * block_dim_;
+    CuSubMatrix<BaseFloat> in_vec = powered_in.ColRange(start_ind, block_dim_);
+    in_vec.ApplyPow(power_(i));
+    if (offset_(i) != 0.0)
+      powered_offset.Range(start_ind, block_dim_).Set(std::pow((offset_(i) * offset_(i)), power_(i)) * -1.0);
+  }
+  powered_in.AddVecToRows(1.0, powered_offset);
+  out->CopyFromMat(powered_in);
+  return NULL;
+}
+
+void PowerComponent::Backprop(const std::string &debug_info,
+                              const ComponentPrecomputedIndexes *indexes,
+                              const CuMatrixBase<BaseFloat> &in_value,
+                              const CuMatrixBase<BaseFloat> &, // out_value
+                              const CuMatrixBase<BaseFloat> &out_deriv,
+                              void *memo,
+                              Component *to_update_in,
+                              CuMatrixBase<BaseFloat> *in_deriv) const {
+  PowerComponent *to_update = dynamic_cast<PowerComponent*>(to_update_in);
+  int32 num_blocks = dim_ / block_dim_;
+  CuVector<BaseFloat> unfolded_offset(dim_);
+  if (in_deriv) {
+    // 2 * power_ * (floor((x+offset_)^2))^(power_-1)) * (x+offset_)
+    for (int32 i = 0; i < num_blocks; i++)
+      unfolded_offset.Range(i * block_dim_, block_dim_).Set(offset_(i));
+    in_deriv->CopyFromMat(in_value);
+    in_deriv->AddVecToRows(1.0, unfolded_offset); // (x+offset)
+    CuMatrix<BaseFloat> offset_in(*in_deriv);
+    in_deriv->ApplyPow(2.0);
+    in_deriv->ApplyFloor(1.0e-05); // first compute (x+offset_)^2 and apply 1e-20
+                                   // to deal with near-zeros elements for negative
+                                   // powers.
+    for (int32 i = 0; i < num_blocks; i++) {
+       int32 start_ind = i * block_dim_;
+       CuSubMatrix<BaseFloat> in_vec = in_deriv->ColRange(start_ind, block_dim_);
+       in_vec.ApplyPow(power_(i) - 1.0);
+       in_vec.Scale(2.0 * power_(i));
+    }
+    in_deriv->MulElements(offset_in);
+    in_deriv->MulElements(out_deriv);
+  }
+
+  if (to_update != NULL) {
+      to_update->Update(debug_info, in_value, out_deriv, power_, offset_);
+  }
+}
+
+void PowerComponent::Read(std::istream &is, bool binary) {
+  ReadUpdatableCommon(is, binary);  // read opening tag and learning rate.
+  ExpectOneOrTwoTokens(is, binary, "<PowerComponent>", "<Dim>");
+  ReadBasicType(is, binary, &dim_);
+  ExpectToken(is, binary, "<Power>");
+  power_.Read(is, binary);
+  ExpectToken(is, binary, "<Offset>");
+  offset_.Read(is, binary);
+  std::string tok;
+  ReadToken(is, binary, &tok);
+  if (tok == "<BlockDim>") {
+    ReadBasicType(is, binary, &block_dim_);
+    ReadToken(is, binary, &tok);
+  }
+  KALDI_ASSERT(tok == "</PowerComponent>");
+}
+
+void PowerComponent::Write(std::ostream &os, bool binary) const {
+  WriteUpdatableCommon(os, binary);  // Write opening tag and learning rate
+  WriteToken(os, binary, "<PowerComponent>");
+  WriteToken(os, binary, "<Dim>");
+  WriteBasicType(os, binary, dim_);
+  WriteToken(os, binary, "<Power>");
+  power_.Write(os, binary);
+  WriteToken(os, binary, "<Offset>");
+  offset_.Write(os, binary);
+  WriteToken(os, binary, "<BlockDim>");
+  WriteBasicType(os, binary, block_dim_);
+  WriteToken(os, binary, "</PowerComponent>");
+}
+
+
+PowerComponent::PowerComponent(): dim_(0), block_dim_(1) {}
+
+PowerComponent::PowerComponent(const PowerComponent &other):
+    UpdatableComponent(other),
+    dim_(other.dim_),
+    block_dim_(other.block_dim_),
+    power_(other.power_),
+    offset_(other.offset_) {}
+
+
+Component* PowerComponent::Copy() const {
+  PowerComponent *ans = new PowerComponent(*this);
+  return ans;
+}
+
+void PowerComponent::Update(const std::string &debug_info,
+                            const CuMatrixBase<BaseFloat> &in_value,
+                            const CuMatrixBase<BaseFloat> &out_deriv,
+                            const CuVectorBase<BaseFloat> &power,
+                            const CuVectorBase<BaseFloat> &offset) {
+  //
+
+  CuMatrix<BaseFloat> power_update(in_value);
+  CuVector<BaseFloat> power_update_t2(dim_),
+    offset_update_t2(dim_),
+    unfolded_offset(dim_);
+  int32 num_blocks = dim_ / block_dim_;
+  for (int32 i = 0; i < num_blocks; i++)
+    unfolded_offset.Range(i * block_dim_, block_dim_).Set(offset(i));
+
+  power_update.AddVecToRows(1.0, unfolded_offset); // (x+offset_)
+  CuMatrix<BaseFloat> offset_in(power_update);
+  power_update.ApplyPow(2.0);
+  power_update.ApplyFloor(1.0e-05); // floor((x+offset)^2)
+
+  CuMatrix<BaseFloat> offset_update(power_update),
+    power_update_log(power_update);
+  power_update_log.ApplyLog(); // log[(x+offset)^2]
+
+  for (int32 i = 0; i < num_blocks; i++) {
+    int32 start_ind = i * block_dim_;
+    CuSubMatrix<BaseFloat> offset_vec = offset_update.ColRange(start_ind, block_dim_),
+      power_vec = power_update.ColRange(start_ind, block_dim_);
+    offset_vec.ApplyPow(power(i) - 1.0); // (x+offset)^(2p-2)
+
+    if (offset(i) != 0.0) {
+      offset_update_t2.Range(start_ind, block_dim_).Set(-2.0 * power(i) *
+                             offset(i) * std::pow((offset(i) * offset(i)),
+                             (power(i) - 1.0))); // -2.0 * p * offset^(2p-2) * offset
+
+      power_update_t2.Range(start_ind, block_dim_).Set(-1.0 * Log(offset(i) *
+                            offset(i)) * std::pow((offset(i) *
+                            offset(i)), power(i))); // log(offset^2) * offset^2p
+    }
+
+    offset_vec.Scale(2.0 * power(i)); // 2*p*floor((x+offset)^2)^(p-1)
+    power_vec.ApplyPow(power(i)); // floor((x+offset)^2)^p
+  }
+
+  offset_update.MulElements(offset_in); // floor((x+offset)^2)^(p-1) * (x+offset)
+  offset_update.AddVecToRows(1.0, offset_update_t2); // (1) - 2p floor((offset)^2)^(p-1) * offset
+
+  power_update.MulElements(power_update_log); // log(floor((x+offset)^2)) * floor((x+offset)^2)^p
+  power_update.AddVecToRows(1.0, power_update_t2); // (1) - log(offset^2) * offset^2p
+
+  power_update.MulElements(out_deriv);
+  offset_update.MulElements(out_deriv);
+
+  if (block_dim_ > 1) {
+    // sum updated over row of minibatch
+    CuVector<BaseFloat> unfolded_power_update_vec(dim_),
+      unfolded_offset_update_vec(dim_);
+    unfolded_power_update_vec.AddRowSumMat(1.0, power_update);
+    unfolded_offset_update_vec.AddRowSumMat(1.0, offset_update);
+    for (int32 i = 0; i < num_blocks; i++) {
+      int32 start_ind = i * block_dim_;
+      power_(i) += learning_rate_ * unfolded_power_update_vec.Range(start_ind, block_dim_).Sum();
+      offset_(i) += learning_rate_ * unfolded_offset_update_vec.Range(start_ind, block_dim_).Sum();
+    }
+  } else {
+    power_.AddRowSumMat(learning_rate_, power_update);
+    offset_.AddRowSumMat(learning_rate_, offset_update);
+  }
+}
+
+
 
 SumBlockComponent::SumBlockComponent(const SumBlockComponent &other):
     input_dim_(other.input_dim_), output_dim_(other.output_dim_),
