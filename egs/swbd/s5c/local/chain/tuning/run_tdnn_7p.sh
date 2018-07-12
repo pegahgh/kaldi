@@ -218,7 +218,7 @@ if [ $stage -le 14 ]; then
   # Note: it might appear that this $lang directory is mismatched, and it is as
   # far as the 'topo' is concerned, but this script doesn't read the 'topo' from
   # the lang directory.
-  utils/mkgraph.sh --self-loop-scale 1.0 data/lang_sw1_tg $dir $dir/graph_sw1_tg
+  utils/mkgraph.sh --self-loop-scale 1.0 data/201_test/lang_universal $dir $dir/graph_201_test_dev.pem
 fi
 
 
@@ -227,19 +227,16 @@ iter_opts=
 if [ ! -z $decode_iter ]; then
   iter_opts=" --iter $decode_iter "
 fi
+decode_sets=201_test_dev.pem
 if [ $stage -le 15 ]; then
   rm $dir/.error 2>/dev/null || true
-  for decode_set in $maybe_rt03; do  # train_dev eval2000
+  for decode_set in $decode_sets; do  # train_dev eval2000
       (
       steps/nnet3/decode.sh --acwt 1.0 --post-decode-acwt 10.0 \
           --nj $decode_nj --cmd "$decode_cmd" $iter_opts \
-          --online-ivector-dir exp/nnet3/ivectors_${decode_set} \
-          $graph_dir data/${decode_set}_hires \
-          $dir/decode_${decode_set}${decode_iter:+_$decode_iter}_sw1_tg || exit 1;
-      if $has_fisher; then
-          steps/lmrescore_const_arpa.sh --cmd "$decode_cmd" \
-            data/lang_sw1_{tg,fsh_fg} data/${decode_set}_hires \
-            $dir/decode_${decode_set}${decode_iter:+_$decode_iter}_sw1_{tg,fsh_fg} || exit 1;
+          --online-ivector-dir exp/nnet3_cleaned/ivectors_${decode_set}_hires \
+          $graph_dir data/${decode_set}_hires_16kHz \
+          $dir/decode_${decode_set}${decode_iter:+_$decode_iter}_universal || exit 1;
       fi
       ) || touch $dir/.error &
   done
