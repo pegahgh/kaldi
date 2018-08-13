@@ -15,11 +15,11 @@ min_lmwt=7 # unused,
 max_lmwt=15 # unused,
 iter=final
 asclite=true
+frame_shift=0.01 # frame-shift in sec.
 #end configuration section.
 
 [ -f ./path.sh ] && . ./path.sh
 . parse_options.sh || exit 1;
-
 if [ $# -ne 3 ]; then
   echo "Usage: local/score.sh [options] <data-dir> <lang-dir|graph-dir> <decode-dir>" && exit;
   echo " Options:"
@@ -37,15 +37,15 @@ mic=$(echo $data | awk -F '/' '{print $2}')
 case $mic in
   ihm*)
     echo "Using sclite for IHM (close talk),"
-    eval local/score_asclite.sh --asclite false $orig_args
+    eval local/score_asclite.sh --frame-shift $frame_shift --asclite false $orig_args
   ;;
   sdm*)
     echo "Using asclite for overlapped speech SDM (single distant mic),"
-    eval local/score_asclite.sh --asclite $asclite $orig_args
+    eval local/score_asclite.sh --frame-shift $frame_shift --asclite $asclite $orig_args
   ;;
   mdm*)
     echo "Using asclite for overlapped speech MDM (multiple distant mics),"
-    eval local/score_asclite.sh --asclite $asclite $orig_args
+    eval local/score_asclite.sh --frame-shift $frame_shift --asclite $asclite $orig_args
   ;;
   *)
     echo "local/score.sh: no ihm/sdm/mdm directories found. AMI recipe assumes data/{ihm,sdm,mdm}/..."

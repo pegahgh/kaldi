@@ -10,7 +10,7 @@ TESTFILES = feature-mfcc-test feature-plp-test feature-fbank-test \
          feature-dnnc-test
 
 OBJFILES = feature-functions.o feature-dnnc.o feature-mfcc.o feature-plp.o feature-fbank.o \
-           feature-spectrogram.o dnnc-computations.o mel-computations.o wave-reader.o \
+           feature-spectrogram.o fdnnc-computations.o mel-computations.o wave-reader.o \
            pitch-functions.o resample.o online-feature.o signal.o \
            feature-window.o
 
