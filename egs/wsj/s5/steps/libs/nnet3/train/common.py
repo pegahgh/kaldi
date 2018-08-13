@@ -102,6 +102,7 @@ def get_multitask_egs_opts(egs_dir, egs_prefix="",
 
 def get_successful_models(num_models, log_file_pattern,
                           difference_threshold=1.0,
+                          avg_threshold_scale=1.0,
                           min_acceptable_obj_for_average=-1000.0):
     assert num_models > 0
     do_average = True
@@ -126,7 +127,7 @@ def get_successful_models(num_models, log_file_pattern,
     accepted_models = []
     if objf[max_index] <  min_acceptable_obj_for_average:
         do_average = False
-
+    difference_threshold = min(difference_threshold, avg_threshold_scale * abs(objf[max_index]))
     for i in range(num_models):
         if (objf[max_index] - objf[i]) <= difference_threshold:
             accepted_models.append(i + 1)
@@ -433,9 +434,9 @@ def verify_egs_dir(egs_dir, feat_dim, ivector_dim, ivector_extractor_id,
         # if feat_dim was supplied as 0, it means the --feat-dir option was not
         # supplied to the script, so we simply don't know what the feature dim is.
         if (feat_dim != 0 and feat_dim != egs_feat_dim) or (ivector_dim != egs_ivector_dim):
-            raise Exception("There is mismatch between featdim/ivector_dim of "
+            raise Exception("There is mismatch between featdim/ivector_dim {0}/{1} of "
                             "the current experiment and the provided "
-                            "egs directory")
+                            "egs directory: {2}/{3}".format(feat_dim, ivector_dim, egs_feat_dim, egs_ivector_dim))
 
         if (((egs_ivector_id is None) and (ivector_extractor_id is not None)) or
             ((egs_ivector_id is not None) and (ivector_extractor_id is None))):

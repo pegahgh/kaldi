@@ -136,6 +136,8 @@ static bool ProcessFile(const TransitionModel *trans_mdl,
         num_frames_subsampled = chunk.num_frames / frame_subsampling_factor;
 
     chain::Supervision supervision_part;
+    if (start_frame_subsampled + num_frames_subsampled > supervision.frames_per_sequence * supervision.num_sequences)
+      continue;
     sup_splitter.GetFrameRange(start_frame_subsampled,
                                num_frames_subsampled,
                                &supervision_part);

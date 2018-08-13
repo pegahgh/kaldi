@@ -81,6 +81,11 @@ def get_args():
                         with dim fft_feat_dim and closest 2-power of that is
                         generated as configs/{cos,sin}_transform.mat.
                         """)
+    parser.add_argument("--avg-threshold-scale", type=float,
+                        dest='avg_threshold_scale', default=1.0,
+                        help="The scale used in model averaging "
+                        ", that is multiplied with best model objective and "
+                        "used as difference threshold in model averaging.")
     parser.add_argument("--chain.xent-regularize", type=float,
                         dest='xent_regularize', default=0.0,
                         help="Weight of regularization function which is the "
@@ -591,7 +596,8 @@ def train(args, run_opts):
                 backstitch_training_scale=args.backstitch_training_scale,
                 backstitch_training_interval=args.backstitch_training_interval,
                 do_average=do_average,
-                use_multitask_egs=use_multitask_egs)
+                use_multitask_egs=use_multitask_egs,
+                avg_threshold_scale=args.avg_threshold_scale)
 
             if args.cleanup:
                 # do a clean up everything but the last 2 models, under certain

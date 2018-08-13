@@ -131,11 +131,12 @@ if ! [ $num_utts -gt $[$num_utts_subset_valid*4] ]; then
   echo "... you probably have so little data that it doesn't make sense to train a neural net."
   exit 1
 fi
-
+echo Hi1
 # Get list of validation utterances.
-awk '{print $1}' $data/utt2spk | utils/shuffle_list.pl | head -$num_utts_subset_valid | sort \
-    > $dir/valid_uttlist || exit 1;
+echo "awk '{print $1}' $data/utt2spk | utils/shuffle_list.pl | head -$num_utts_subset_valid | sort > $dir/valid_uttlist"
+awk '{print $1}' $data/utt2spk | utils/shuffle_list.pl | head -${num_utts_subset_valid} | sort > $dir/valid_uttlist
 
+echo Hi2
 if [ -f $data/utt2uniq ]; then  # this matters if you use data augmentation.
   echo "File $data/utt2uniq exists, so augmenting valid_uttlist to"
   echo "include all perturbed versions of the same 'real' utterances."
@@ -147,8 +148,7 @@ if [ -f $data/utt2uniq ]; then  # this matters if you use data augmentation.
   rm $dir/uniq2utt $dir/valid_uttlist.tmp
 fi
 
-awk '{print $1}' $data/utt2spk | utils/filter_scp.pl --exclude $dir/valid_uttlist | \
-   utils/shuffle_list.pl | head -$num_utts_subset_train | sort > $dir/train_subset_uttlist || exit 1;
+awk '{print $1}' $data/utt2spk | utils/filter_scp.pl --exclude $dir/valid_uttlist | utils/shuffle_list.pl | head -$num_utts_subset_train | sort > $dir/train_subset_uttlist
 
 ## Set up features.
 echo "$0: feature type is raw"

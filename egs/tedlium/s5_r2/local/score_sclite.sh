@@ -14,6 +14,7 @@ word_ins_penalty=0.0,0.5,1.0
 min_lmwt=7
 max_lmwt=17
 iter=final
+frame_shift=0.01
 #end configuration section.
 
 [ -f ./path.sh ] && . ./path.sh
@@ -54,7 +55,9 @@ if [ -f $dir/../frame_shift ]; then
   echo "$0: $dir/../frame_shift exists, using $frame_shift_opt"
 elif [ -f $dir/../frame_subsampling_factor ]; then
   factor=$(cat $dir/../frame_subsampling_factor) || exit 1
-  frame_shift_opt="--frame-shift=0.0$factor"
+  #frame_shift_opt="--frame-shift=0.0$factor"
+  echo "frame-shift=$frame_shift, frame_subsampling=$factor"
+  frame_shift_opt="--frame-shift=`echo $frame_shift $factor | awk '{print $1*$2}'`"
   echo "$0: $dir/../frame_subsampling_factor exists, using $frame_shift_opt"
 fi
 

@@ -67,7 +67,7 @@ DenominatorComputation::DenominatorComputation(
   // We limit the nnet output to the range [-30,30] before doing the exp;
   // this avoids NaNs appearing in the forward-backward computation, which
   // is not done in log space.
-  exp_nnet_output_transposed_.ApplyExpLimited(-30.0, 30.0);
+  exp_nnet_output_transposed_.ApplyExpLimited(-40.0, 40.0);
 }
 
 

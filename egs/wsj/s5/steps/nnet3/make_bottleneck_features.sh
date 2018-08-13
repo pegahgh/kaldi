@@ -10,7 +10,9 @@ nj=4
 cmd=queue.pl
 use_gpu=false
 ivector_dir=
+ivector_period=
 compress=true
+bnf_nnet=
 # End configuration options.
 
 echo "$0 $@"  # Print the command line for logging
@@ -47,7 +49,9 @@ fi
 
 # Assume that final.nnet is in nnetdir
 cmvn_opts=`cat $nnetdir/cmvn_opts`;
-bnf_nnet=$nnetdir/final.raw
+if [ -z $bnf_nnet ]; then
+  bnf_nnet=$nnetdir/final.raw
+fi
 if [ ! -f $bnf_nnet ] ; then
   echo "$0: No such file $bnf_nnet";
   exit 1;
@@ -95,7 +99,9 @@ if [ $stage -le 1 ]; then
   modified_bnf_nnet="nnet3-copy --edits='remove-output-nodes name=output' $bnf_nnet - | nnet3-copy --nnet-config=$bnf_data/output.config - - |"
   ivector_opts=
   if $use_ivector; then
-    ivector_period=$(cat $ivector_dir/ivector_period) || exit 1;
+    if [ -z $ivector_period ]; then
+      ivector_period=$(cat $ivector_dir/ivector_period) || exit 1;
+    fi
     ivector_opts="--online-ivector-period=$ivector_period --online-ivectors='$ivector_feats'"
   fi
   $cmd $compute_queue_opt JOB=1:$nj $logdir/make_bnf_$name.JOB.log \

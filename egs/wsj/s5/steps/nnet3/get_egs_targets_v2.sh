@@ -60,7 +60,6 @@ samples_per_iter=400000 # this is the target number of egs in each archive of eg
                         # a number that divides the number of samples in the
                         # entire data.
 
-transform_dir=
 
 stage=0
 nj=6         # This should be set to the maximum number of jobs you are
@@ -140,9 +139,7 @@ if ! [ $num_utts -gt $[$num_utts_subset_valid*4] ]; then
 fi
 
 # Get list of validation utterances.
-awk '{print $1}' $data/utt2spk | utils/shuffle_list.pl | head -$num_utts_subset_valid | sort \
-    > $dir/valid_uttlist || exit 1;
-
+awk '{print $1}' $data/utt2spk | utils/shuffle_list.pl | head -$num_utts_subset_valid | sort > $dir/valid_uttlist
 if [ -f $data/utt2uniq ]; then  # this matters if you use data augmentation.
   echo "File $data/utt2uniq exists, so augmenting valid_uttlist to"
   echo "include all perturbed versions of the same 'real' utterances."
@@ -154,16 +151,8 @@ if [ -f $data/utt2uniq ]; then  # this matters if you use data augmentation.
   rm $dir/uniq2utt $dir/valid_uttlist.tmp
 fi
 
-awk '{print $1}' $data/utt2spk | utils/filter_scp.pl --exclude $dir/valid_uttlist | \
-   utils/shuffle_list.pl | head -$num_utts_subset_train | sort > $dir/train_subset_uttlist || exit 1;
+awk '{print $1}' $data/utt2spk | utils/filter_scp.pl --exclude $dir/valid_uttlist | utils/shuffle_list.pl | head -$num_utts_subset_train | sort > $dir/train_subset_uttlist
 
-if [ -f $transform_dir/raw_trans.1 ]; then
-  echo "$0: using raw transforms from $transform_dir"
-  if [ $stage -le 0 ]; then
-    $cmd $dir/log/copy_transforms.log \
-      copy-feats "ark:cat $transform_dir/raw_trans.* |" "ark,scp:$dir/trans.ark,$dir/trans.scp"
-  fi
-fi
 
 ## Set up features.
 echo "$0: feature type is raw"

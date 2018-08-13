@@ -245,7 +245,8 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                         frame_subsampling_factor,
                         run_opts, dropout_edit_string="", do_average=None, train_opts="",
                         backstitch_training_scale=0.0, backstitch_training_interval=1,
-                        use_multitask_egs=False):
+                        use_multitask_egs=False,
+                        avg_threshold_scale=1.0):
     """ Called from steps/nnet3/chain/train.py for one iteration for
     neural network training with LF-MMI objective
 
@@ -337,9 +338,9 @@ def train_one_iteration(dir, iter, srand, egs_dir,
                          iter / 15 if iter < 15 else backstitch_training_scale),
                      backstitch_training_interval=backstitch_training_interval,
                      use_multitask_egs=use_multitask_egs)
-
     [models_to_average, best_model, do_average_bkup] = common_train_lib.get_successful_models(
-         num_jobs, '{0}/log/train.{1}.%.log'.format(dir, iter))
+         num_jobs, '{0}/log/train.{1}.%.log'.format(dir, iter),
+         avg_threshold_scale=avg_threshold_scale)
     nnets_list = []
     for n in models_to_average:
         nnets_list.append("{0}/{1}.{2}.raw".format(dir, iter + 1, n))
