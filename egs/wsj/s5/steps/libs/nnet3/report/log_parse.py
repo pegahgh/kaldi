@@ -1,5 +1,3 @@
-
-
 # Copyright 2016    Vijayaditya Peddinti
 #                   Vimal Manohar
 # Apache 2.0.

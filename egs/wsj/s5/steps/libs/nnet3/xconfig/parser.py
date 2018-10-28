@@ -19,6 +19,7 @@ import libs.common as common_lib
 config_to_layer = {
         'input' : xlayers.XconfigInputLayer,
         'output' : xlayers.XconfigTrivialOutputLayer,
+        'dim-range-node' : xlayers.XconfigDimRangeLayer,
         'output-layer' : xlayers.XconfigOutputLayer,
         'relu-layer' : xlayers.XconfigBasicLayer,
         'relu-renorm-layer' : xlayers.XconfigBasicLayer,

@@ -309,6 +309,61 @@ class XconfigLayerBase(object):
 
         raise Exception("Child classes must override get_full_config()")
 
+class XconfigDimRangeLayer(XconfigLayerBase):
+    """This class is for lines like
+    'dim-range-node name=input.mfcc input=input dim-offset=0 dim=40'
+    in the config file.
+    """
+    def __init__(self, first_token, key_to_value, prev_names=None):
+
+        assert first_token == 'dim-range-node'
+        XconfigLayerBase.__init__(self, first_token, key_to_value, prev_names)
+
+    def set_default_configs(self):
+
+        self.config = {'input': '[-1]',
+                       'dim': -1,
+                       'dim-offset': 0}
+
+    def check_configs(self):
+
+        if self.config['dim'] <= 0:
+            raise RuntimeError("Dimension of input-layer '{0}'"
+                               "should be positive.".format(self.name))
+        if self.config['dim-offset'] < 0:
+            raise  RuntimeError("Offset '{0}' should be positive."
+                                .format(self.dim_offset))
+
+    def get_input_descriptor_names(self):
+
+        return []  # there is no 'input' field in self.config.
+
+    def output_name(self, auxiliary_outputs=None):
+
+        # there are no auxiliary outputs as this layer will just pass the input
+        assert auxiliary_outputs is None
+        return self.name
+
+    def output_dim(self, auxiliary_outputs=None):
+
+        # there are no auxiliary outputs as this layer will just pass the input
+        assert auxiliary_outputs is None
+        return self.config['dim']
+
+    def get_full_config(self):
+
+        # unlike other layers the input layers need to be printed in
+        # 'init.config' (which initializes the neural network prior to the LDA)
+        ans = []
+        for config_name in ['init', 'ref', 'final']:
+            ans.append((config_name,
+                        'dim-range-node name={0} input-node={1} '
+                        'dim-offset={2} dim={3}'.format(self.name,
+                                                        self.config['input'],
+                                                        self.config['dim-offset'],
+                                                        self.config['dim'])))
+        return ans
+
 
 class XconfigInputLayer(XconfigLayerBase):
     """This class is for lines like

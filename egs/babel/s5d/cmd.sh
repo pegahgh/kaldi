@@ -6,8 +6,10 @@
 # the number of cpus on your machine.
 
 #a) JHU cluster options
-export train_cmd="queue.pl -l arch=*64"
-export decode_cmd="queue.pl --mem 4G"
+export train_cmd="retry.pl queue.pl -l arch=*64"
+export decode_cmd="retry.pl queue.pl --mem 4G"
+
+export cuda_cmd="retry.pl queue.pl --gpu 1"
 
 #c) run it locally...
 #export train_cmd=run.pl

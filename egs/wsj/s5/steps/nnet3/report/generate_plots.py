@@ -163,7 +163,8 @@ def latex_compliant_name(name_string):
 
 def generate_acc_logprob_plots(exp_dir, output_dir, plot, key='accuracy',
         file_basename='accuracy', comparison_dir=None,
-        start_iter=1, latex_report=None, output_name='output'):
+        start_iter=1, latex_report=None, output_name='output',
+        output_per_dir=False):
 
     assert start_iter >= 1
 
@@ -177,10 +178,16 @@ def generate_acc_logprob_plots(exp_dir, output_dir, plot, key='accuracy',
     for dir in dirs:
         [report, times, data] = log_parse.generate_acc_logprob_report(dir, key,
                 output_name)
+        if output_per_dir:
+            suffix=dir.split('/')[-1]
+            with open("{0}/{1}_{2}.{3}.log".format(output_dir,
+                                           file_basename, suffix,output_name),
+                                           "w") as f:
+                f.write(report)
         if index == 0:
             # this is the main experiment directory
-            with open("{0}/{1}.log".format(output_dir,
-                                           file_basename), "w") as f:
+            with open("{0}/{1}.log".format(output_dir,file_basename),
+                "w") as f:
                 f.write(report)
 
         if plot:

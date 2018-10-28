@@ -15,7 +15,7 @@ num_threads_ubm=2
 train_set=train
 test_sets="native nonnative devtest test"
 gmm=tri3b
-
+combine=false
 nnet3_affix=
 
 . ./cmd.sh
@@ -31,6 +31,10 @@ for f in data/${train_set}/feats.scp ${gmm_dir}/final.mdl; do
     exit 1
   fi
 done
+
+if $combine; then
+  comb_affix="_comb"
+fi
 
 if [ $stage -le 1 ]; then
     # perturb data to get alignments
@@ -132,6 +136,16 @@ if [ $stage -le 5 ]; then
 	exp/nnet3${nnet3_affix}/extractor || exit 1;
 fi
 
+if $combine; then
+  utils/data/combine_short_segments.sh \
+    data/${train_set}_sp_hires 1.55 \
+    data/${train_set}_sp_hires_comb || exit 1;
+
+  cp data/${train_set}_sp_hires/cmvn.scp data/${train_set}_sp_hires${comb_affix}/
+
+  utils/fix_data_dir.sh data/${train_set}_sp_hires${comb_affix}
+fi
+
 if [ $stage -le 6 ]; then
     # combine   and train system on short segments.
     # extract iVectors on speed-perturbed training data
@@ -145,20 +159,20 @@ if [ $stage -le 6 ]; then
     # valid for non-max2 data
     #  utterance list is the same.
 
-    ivectordir=exp/nnet3${nnet3_affix}/ivectors_${train_set}_sp_hires
+    ivectordir=exp/nnet3${nnet3_affix}/ivectors_${train_set}_sp_hires${comb_affix}
 
     # having a larger number of speakers is helpful for generalization, and to
     # handle per-utterance decoding well (iVector starts at zero).
     temp_data_root=${ivectordir}
     utils/data/modify_speaker_info.sh \
 	--utts-per-spk-max 2 \
-	data/${train_set}_sp_hires \
-	${temp_data_root}/${train_set}_sp_hires_max2
+	data/${train_set}_sp_hires${comb_affix} \
+	${temp_data_root}/${train_set}_sp_hires${comb_affix}_max2
 
     steps/online/nnet2/extract_ivectors_online.sh \
 	--cmd "$train_cmd" \
 	--nj 20 \
-	${temp_data_root}/${train_set}_sp_hires_max2 \
+	${temp_data_root}/${train_set}_sp_hires${comb_affix}_max2 \
 	exp/nnet3${nnet3_affix}/extractor \
 	$ivectordir
 

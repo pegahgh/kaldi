@@ -108,7 +108,7 @@ tree_dir=exp/chain${nnet3_affix}/tree_sp${tree_affix:+_$tree_affix}
 lang=data/lang_chain
 lat_dir=exp/chain${nnet3_affix}/${gmm}_${train_set}_sp_lats
 dir=exp/chain${nnet3_affix}/cnn_tdnn${affix}_sp
-train_data_dir=data/${train_set}_sp_hires
+train_data_dir=data/${train_set}_sp_hires_comb
 lores_train_data_dir=data/${train_set}_sp
 train_ivector_dir=exp/nnet3${nnet3_affix}/ivectors_${train_set}_sp_hires
 
