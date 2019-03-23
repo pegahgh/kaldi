@@ -127,7 +127,7 @@ fdnnc_dir=fdnnc${feat_affix}
 if [ $stage -le 12 ]; then
   echo "$0: generate raw features."
   utils/create_split_dir.pl \
-    /export/b0{5,7,8,9}/$USER/kaldi-data/egs/swbd-$(date +'%m_%d_%H_%M')/s5c/$dir/fdnnc-const-op-dct/storage $fdnnc_dir/storage
+    /export/b{07,08,09,11,12}/$USER/kaldi-data/egs/swbd-$(date +'%m_%d_%H_%M')/s5c/$dir/fdnnc-const-op-dct/storage $fdnnc_dir/storage
 
   for data_set in $train_set eval2000 rt03 train_dev;do
     utils/copy_data_dir.sh data/$data_set data/${data_set}_fdnnc${feat_affix}
